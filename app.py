@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ import zipstream
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.exceptions import HTTPException
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -85,7 +87,6 @@ def _cleanup_temp(path: str, delay: int = 120) -> None:
             if os.path.isfile(path):
                 os.remove(path)
             elif os.path.isdir(path):
-                import shutil
                 shutil.rmtree(path, ignore_errors=True)
         except OSError:
             pass
@@ -269,8 +270,8 @@ def _spotify_type(url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _fetch_spotify_metadata(url: str) -> dict:
-    """Use spotdl --print-errors --print-url to retrieve basic track metadata."""
+def _fetch_spotify_metadata(url: str) -> list:
+    """Use spotdl save to retrieve basic track metadata and return a list of track dicts."""
     cmd = [
         "spotdl",
         "save",
@@ -282,10 +283,10 @@ def _fetch_spotify_metadata(url: str) -> dict:
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "spotdl metadata failed")
     # spotdl save emits JSON lines
-    lines = [l.strip() for l in result.stdout.splitlines() if l.strip().startswith("{")]
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("{")]
     if not lines:
         raise ValueError("No metadata returned by spotdl")
-    tracks = [json.loads(l) for l in lines]
+    tracks = [json.loads(line) for line in lines]
     return tracks
 
 
@@ -356,43 +357,54 @@ def spotify_download():
 
 
 def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
-    """Stream a single Spotify track as MP3 or FLAC to the browser."""
+    """Download a single Spotify track to a temp file and stream it to the browser."""
     mime = "audio/flac" if fmt == "flac" else "audio/mpeg"
-    ext = fmt
+
+    tmp_dir = tempfile.mkdtemp(prefix="spotdl_track_")
     cmd = [
         "spotdl",
         "download",
         url,
-        "--output", "-",
+        "--output", os.path.join(tmp_dir, "{title}"),
         "--format", fmt,
         "--no-cache",
     ]
 
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"error": "Download timed out"}), 504
+
+    try:
+        files = [f for f in os.listdir(tmp_dir) if f.endswith(f".{fmt}")]
+    except OSError:
+        files = []
+
+    if not files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"error": "Track download failed"}), 500
+
+    fpath = os.path.join(tmp_dir, files[0])
+    filename = _sanitize_filename(files[0])
+
     def generate():
-        proc = None
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            while True:
-                chunk = proc.stdout.read(65536)
-                if not chunk:
-                    break
-                yield chunk
+            with open(fpath, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
         except GeneratorExit:
-            if proc and proc.poll() is None:
-                proc.kill()
+            pass
         except Exception as exc:  # noqa: BLE001
             logger.error("Stream error (Spotify track): %s", exc)
         finally:
-            if proc:
-                proc.stdout.close()
-                proc.wait()
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     headers = {
-        "Content-Disposition": f'attachment; filename="track.{ext}"',
+        "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Accel-Buffering": "no",
     }
     return Response(
@@ -405,7 +417,6 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
 def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
     """Download a Spotify album/playlist and stream it as a ZIP to the browser."""
     tmp_dir = tempfile.mkdtemp(prefix="spotdl_")
-    _cleanup_temp(tmp_dir, delay=300)
 
     cmd = [
         "spotdl",
@@ -424,6 +435,7 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
             timeout=600,
         )
     except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         return jsonify({"error": "Download timed out"}), 504
 
     if proc.returncode != 0:
@@ -439,15 +451,24 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
             files_added += 1
 
     if files_added == 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         return jsonify({"error": "No tracks were downloaded"}), 500
 
     zip_name = f"{sp_type}_download.zip"
+
+    def generate():
+        try:
+            yield from zs
+        finally:
+            # Clean up temp dir after streaming completes or is aborted
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     headers = {
         "Content-Disposition": f'attachment; filename="{zip_name}"',
         "X-Accel-Buffering": "no",
     }
     return Response(
-        stream_with_context(zs),
+        stream_with_context(generate()),
         mimetype="application/zip",
         headers=headers,
     )
@@ -456,6 +477,11 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
 # ---------------------------------------------------------------------------
 # Error handlers
 # ---------------------------------------------------------------------------
+
+@app.errorhandler(HTTPException)
+def http_exception(e):
+    return jsonify({"error": e.description}), e.code
+
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
