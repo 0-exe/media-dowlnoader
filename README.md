@@ -19,6 +19,40 @@
 
 ---
 
+## 💻 Local Demo (Website UI Only)
+
+You can run the web interface locally to preview the UI **without** installing `yt-dlp` or `spotdl`. Fetch/Download actions will return errors, but the full UI is visible.
+
+### Prerequisites
+
+- Python 3.10+
+- Git
+
+### Steps
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/0-exe/media-dowlnoader.git
+cd media-dowlnoader
+
+# 2. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+# 3. Install only the web-server dependencies (skip yt-dlp / spotdl)
+pip install Flask==3.1.0 Flask-Limiter==3.9.4 Werkzeug==3.1.3 \
+            zipstream-new==1.1.8 requests==2.32.3
+
+# 4. Start the server
+python app.py
+```
+
+Open **http://localhost:8080** in your browser. You will see the full dark-themed UI with the YouTube and Spotify tabs. Clicking *Fetch* or *Download* without the backend tools installed will surface an error toast, which is expected.
+
+> **Tip:** To enable actual downloads, install the full dependencies as described in the [Manual Install](#-manual-install) section.
+
+---
+
 ## 🚀 One-Line Proxmox Install
 
 Run this on the **Proxmox host**:

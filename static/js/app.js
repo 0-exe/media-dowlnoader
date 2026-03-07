@@ -210,12 +210,22 @@ spDownload.addEventListener('click', () => {
  * Trigger a file download by injecting a hidden <iframe>.
  * The iframe's load event fires once the response headers arrive,
  * which is good enough to re-enable the UI.
+ * A fallback timer re-enables the UI after 90 s in case the load
+ * event never fires (some browsers suppress it for file downloads).
  */
 function triggerDownload(url, onStart) {
   const iframe = document.createElement('iframe');
   iframe.style.display = 'none';
   iframe.src = url;
+
+  // Fallback: re-enable UI after 90 s if load event doesn't fire
+  const fallback = setTimeout(() => {
+    onStart && onStart();
+    setTimeout(() => iframe.remove(), 60000);
+  }, 90000);
+
   iframe.addEventListener('load', () => {
+    clearTimeout(fallback);
     onStart && onStart();
     // Keep the iframe alive briefly so the browser can stream the file,
     // then remove it.
