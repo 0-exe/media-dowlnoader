@@ -220,31 +220,6 @@ body {
 }
 .format-select:focus { border-color: var(--accent); }
 
-/* ── Quality badge ───────────────────────────────────────────────────── */
-.quality-badge {
-  display: inline-flex;
-  align-items: center;
-  font-size: .68rem;
-  font-weight: 700;
-  letter-spacing: .03em;
-  padding: .15rem .45rem;
-  border-radius: 4px;
-  margin-left: .4rem;
-  vertical-align: middle;
-}
-.quality-badge.q-4k {
-  background: linear-gradient(135deg, #ff6b35, #ff3535);
-  color: #fff;
-}
-.quality-badge.q-hd {
-  background: linear-gradient(135deg, #6c63ff, #b4a8ff);
-  color: #fff;
-}
-.quality-badge.q-audio {
-  background: linear-gradient(135deg, #1db954, #1ed760);
-  color: #000;
-}
-
 /* ── Progress ────────────────────────────────────────────────────────── */
 .progress-wrap {
   margin-top: 1.25rem;
