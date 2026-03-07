@@ -109,4 +109,4 @@ media-dowlnoader/
 
 ## 📜 License
 
-[MIT](LICENSE) © 2025 0-exe
+[MIT](LICENSE) ©2026 0-exe
