@@ -179,20 +179,24 @@ def youtube_download():
         return jsonify({"error": "Invalid format"}), 400
 
     if fmt == "mp3":
-        yt_format = "bestaudio/best"
+        yt_format = "bestaudio[ext=m4a]/bestaudio/best"
         postprocess = [
             "--extract-audio",
             "--audio-format", "mp3",
             "--audio-quality", "0",
+            "--embed-metadata",
+            "--embed-thumbnail",
         ]
         mime = "audio/mpeg"
         ext = "mp3"
     elif fmt == "flac":
-        yt_format = "bestaudio/best"
+        yt_format = "bestaudio[ext=m4a]/bestaudio/best"
         postprocess = [
             "--extract-audio",
             "--audio-format", "flac",
             "--audio-quality", "0",
+            "--embed-metadata",
+            "--embed-thumbnail",
         ]
         mime = "audio/flac"
         ext = "flac"

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 
-> **YouTube + Spotify downloader** — dark‑themed web app that streams files directly to your browser. Nothing is ever saved on the server.
+> **YouTube + Spotify downloader** — dark‑themed web app that streams files to your browser. Files are downloaded to temporary server-side storage and automatically deleted after the transfer completes.
 
 ---
 
@@ -13,7 +13,7 @@
 |---------|---------|
 | **YouTube** | Paste URL → preview card → choose 360p / 480p / 720p / 1080p / 1440p / 2160p (4K) or MP3 / FLAC → stream to browser |
 | **Spotify** | Paste track/album/playlist URL → preview card → choose MP3 or FLAC → stream MP3/FLAC or ZIP (playlists) |
-| **No disk writes** | All downloads piped directly from `yt-dlp` / `spotdl` stdout to the HTTP response |
+| **Temp storage** | Downloads are saved to temporary server-side files (with metadata & thumbnail embedded), streamed to browser, then deleted |
 | **Dark UI** | Custom CSS with glassmorphism, responsive layout, animated progress bars, toast notifications |
 | **Lightweight** | Runs on 1 CPU / 512 MB RAM (Proxmox LXC or any small VPS) |
 
@@ -40,8 +40,8 @@ python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 # 3. Install only the web-server dependencies (skip yt-dlp / spotdl)
-pip install Flask==3.1.0 Flask-Limiter==3.9.4 Werkzeug==3.1.3 \
-            zipstream-new==1.1.8 requests==2.32.3
+pip install Flask==3.1.3 Flask-Limiter==4.1.1 Werkzeug==3.1.6 \
+            zipstream-new==1.1.8 requests==2.32.5
 
 # 4. Start the server
 python app.py
