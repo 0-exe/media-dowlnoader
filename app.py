@@ -1,6 +1,8 @@
 """
 Media Downloader — Flask backend
-Streams YouTube and Spotify downloads directly to the browser (no disk writes).
+Downloads YouTube and Spotify media to a temporary server-side file, then
+streams the completed file to the browser (with Content-Length for progress),
+and deletes the temp file once the transfer is done.
 """
 
 import json
@@ -217,41 +219,75 @@ def youtube_download():
     safe_title = _sanitize_filename(raw_title)
     filename = f"{safe_title}.{ext}"
 
+    # Download to a temp file so that:
+    #  • postprocessing (audio extract, mux) works reliably
+    #  • we can set Content-Length, giving the browser an accurate progress bar
+    #  • --concurrent-fragments speeds up segmented downloads significantly
+    tmp_dir = tempfile.mkdtemp(prefix="ytdl_")
+    tmp_out = os.path.join(tmp_dir, f"download.%(ext)s")
+
     cmd = [
         "yt-dlp",
         "-f", yt_format,
         "--no-playlist",
         "--no-warnings",
-        "-o", "-",          # write to stdout
+        "--concurrent-fragments", "4",
+        "-o", tmp_out,
     ] + postprocess + [url]
 
     logger.info("YT download: fmt=%s url=%s", fmt, url)
 
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"error": "Download timed out"}), 504
+    except Exception as exc:  # noqa: BLE001
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.error("yt-dlp error: %s", exc)
+        return jsonify({"error": "Download failed"}), 500
+
+    if proc.returncode != 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.warning("yt-dlp stderr: %s", proc.stderr.decode(errors="replace"))
+        return jsonify({"error": "Download failed"}), 500
+
+    try:
+        files = [
+            f for f in os.listdir(tmp_dir)
+            if os.path.isfile(os.path.join(tmp_dir, f)) and f.endswith(f".{ext}")
+        ]
+    except OSError:
+        files = []
+
+    if not files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"error": "Download produced no output"}), 500
+
+    fpath = os.path.join(tmp_dir, files[0])
+    file_size = os.path.getsize(fpath)
+
     def generate():
-        proc = None
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            while True:
-                chunk = proc.stdout.read(65536)
-                if not chunk:
-                    break
-                yield chunk
-        except GeneratorExit:
-            if proc and proc.poll() is None:
-                proc.kill()
+            with open(fpath, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
         except Exception as exc:  # noqa: BLE001
             logger.error("Stream error (YT): %s", exc)
         finally:
-            if proc:
-                proc.stdout.close()
-                proc.wait()
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Length": str(file_size),
         "X-Accel-Buffering": "no",
     }
     return Response(
