@@ -92,10 +92,18 @@
           <h2 id="sp-title" class="card-title"></h2>
           <p id="sp-meta" class="card-meta"></p>
           <p id="sp-tracks" class="card-tracks"></p>
-          <button id="sp-download" class="btn btn-accent">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 4h14v-2H5v2z"/></svg>
-            Download
-          </button>
+          <div class="format-row">
+            <select id="sp-format" class="format-select">
+              <optgroup label="Audio">
+                <option value="mp3">MP3</option>
+                <option value="flac">FLAC (Lossless)</option>
+              </optgroup>
+            </select>
+            <button id="sp-download" class="btn btn-accent">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 4h14v-2H5v2z"/></svg>
+              Download
+            </button>
+          </div>
         </div>
       </div>
 

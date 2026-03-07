@@ -11,10 +11,10 @@
 
 | Feature | Details |
 |---------|---------|
-| **YouTube** | Paste URL → preview card → choose 360p / 480p / 720p / 1080p or MP3 → stream to browser |
-| **Spotify** | Paste track/album/playlist URL → preview card → stream MP3 or ZIP (playlists) |
+| **YouTube** | Paste URL → preview card → choose 360p / 480p / 720p / 1080p / 1440p / 2160p (4K) or MP3 / FLAC → stream to browser |
+| **Spotify** | Paste track/album/playlist URL → preview card → choose MP3 or FLAC → stream MP3/FLAC or ZIP (playlists) |
 | **No disk writes** | All downloads piped directly from `yt-dlp` / `spotdl` stdout to the HTTP response |
-| **Dark UI** | Custom CSS, responsive, animated progress bars, toast notifications |
+| **Dark UI** | Custom CSS with glassmorphism, responsive layout, animated progress bars, toast notifications |
 | **Lightweight** | Runs on 1 CPU / 512 MB RAM (Proxmox LXC or any small VPS) |
 
 ---
@@ -62,9 +62,9 @@ curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.s
 | `GET` | `/` | Web UI |
 | `GET` | `/api/health` | Health check |
 | `POST` | `/api/youtube/info` | Fetch YouTube video metadata. Body: `{"url": "..."}` |
-| `GET` | `/api/youtube/download` | Stream YouTube download. Params: `url`, `format` (360p/480p/720p/1080p/mp3) |
+| `GET` | `/api/youtube/download` | Stream YouTube download. Params: `url`, `format` (360p/480p/720p/1080p/1440p/2160p/mp3/flac) |
 | `POST` | `/api/spotify/info` | Fetch Spotify metadata. Body: `{"url": "..."}` |
-| `GET` | `/api/spotify/download` | Stream Spotify track (MP3) or collection (ZIP). Param: `url` |
+| `GET` | `/api/spotify/download` | Stream Spotify track or collection. Params: `url`, `format` (mp3/flac) |
 
 ### Example — YouTube info
 

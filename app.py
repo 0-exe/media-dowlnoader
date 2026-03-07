@@ -41,7 +41,7 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -135,16 +135,19 @@ def youtube_info():
     seen = set()
     for f in info.get("formats", []):
         height = f.get("height")
-        ext = f.get("ext", "")
         vcodec = f.get("vcodec", "none")
-        acodec = f.get("acodec", "none")
         if vcodec != "none" and height and height not in seen:
             seen.add(height)
             formats.append({"label": f"{height}p", "value": f"{height}p"})
     # Sort descending and keep recognised heights only
-    order = [1080, 720, 480, 360]
-    formats = [f for h in order for f in formats if f["value"] == f"{h}p"]
-    formats.append({"label": "Audio only (MP3)", "value": "mp3"})
+    height_labels = {2160: "2160p (4K)", 1440: "1440p (2K)", 1080: "1080p", 720: "720p", 480: "480p", 360: "360p"}
+    order = [2160, 1440, 1080, 720, 480, 360]
+    formats = [
+        {"label": height_labels[h], "value": f"{h}p", "group": "Video"}
+        for h in order if h in seen
+    ]
+    formats.append({"label": "MP3 (Audio)", "value": "mp3", "group": "Audio"})
+    formats.append({"label": "FLAC (Audio)", "value": "flac", "group": "Audio"})
 
     duration_s = info.get("duration", 0) or 0
     duration_fmt = f"{int(duration_s // 60)}:{int(duration_s % 60):02d}"
@@ -168,7 +171,7 @@ def youtube_download():
     if not url or not _YT_URL_RE.search(url):
         return jsonify({"error": "Invalid YouTube URL"}), 400
 
-    allowed_formats = {"360p", "480p", "720p", "1080p", "mp3"}
+    allowed_formats = {"360p", "480p", "720p", "1080p", "1440p", "2160p", "mp3", "flac"}
     if fmt not in allowed_formats:
         return jsonify({"error": "Invalid format"}), 400
 
@@ -181,6 +184,15 @@ def youtube_download():
         ]
         mime = "audio/mpeg"
         ext = "mp3"
+    elif fmt == "flac":
+        yt_format = "bestaudio/best"
+        postprocess = [
+            "--extract-audio",
+            "--audio-format", "flac",
+            "--audio-quality", "0",
+        ]
+        mime = "audio/flac"
+        ext = "flac"
     else:
         height = fmt.rstrip("p")
         yt_format = (
@@ -328,25 +340,31 @@ def spotify_download():
     if not url or not _SP_URL_RE.match(url):
         return jsonify({"error": "Invalid Spotify URL"}), 400
 
+    fmt = (request.args.get("format") or "mp3").strip()
+    if fmt not in ("mp3", "flac"):
+        return jsonify({"error": "Invalid format"}), 400
+
     sp_type = _spotify_type(url)
     is_collection = sp_type in ("album", "playlist")
 
-    logger.info("Spotify download: type=%s url=%s", sp_type, url)
+    logger.info("Spotify download: type=%s fmt=%s url=%s", sp_type, fmt, url)
 
     if is_collection:
-        return _stream_spotify_zip(url, sp_type)
+        return _stream_spotify_zip(url, sp_type, fmt)
     else:
-        return _stream_spotify_track(url)
+        return _stream_spotify_track(url, fmt)
 
 
-def _stream_spotify_track(url: str) -> Response:
-    """Stream a single Spotify track as MP3 to the browser."""
+def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
+    """Stream a single Spotify track as MP3 or FLAC to the browser."""
+    mime = "audio/flac" if fmt == "flac" else "audio/mpeg"
+    ext = fmt
     cmd = [
         "spotdl",
         "download",
         url,
         "--output", "-",
-        "--format", "mp3",
+        "--format", fmt,
         "--no-cache",
     ]
 
@@ -374,17 +392,17 @@ def _stream_spotify_track(url: str) -> Response:
                 proc.wait()
 
     headers = {
-        "Content-Disposition": 'attachment; filename="track.mp3"',
+        "Content-Disposition": f'attachment; filename="track.{ext}"',
         "X-Accel-Buffering": "no",
     }
     return Response(
         stream_with_context(generate()),
-        mimetype="audio/mpeg",
+        mimetype=mime,
         headers=headers,
     )
 
 
-def _stream_spotify_zip(url: str, sp_type: str) -> Response:
+def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
     """Download a Spotify album/playlist and stream it as a ZIP to the browser."""
     tmp_dir = tempfile.mkdtemp(prefix="spotdl_")
     _cleanup_temp(tmp_dir, delay=300)
@@ -394,7 +412,7 @@ def _stream_spotify_zip(url: str, sp_type: str) -> Response:
         "download",
         url,
         "--output", os.path.join(tmp_dir, "{title}"),
-        "--format", "mp3",
+        "--format", fmt,
         "--no-cache",
     ]
 
@@ -415,7 +433,7 @@ def _stream_spotify_zip(url: str, sp_type: str) -> Response:
     zs = zipstream.ZipFile(mode="w", compression=zipstream.ZIP_DEFLATED)
     files_added = 0
     for fname in os.listdir(tmp_dir):
-        if fname.endswith(".mp3"):
+        if fname.endswith(f".{fmt}"):
             fpath = os.path.join(tmp_dir, fname)
             zs.write(fpath, arcname=fname)
             files_added += 1
