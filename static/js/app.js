@@ -93,11 +93,22 @@ ytFetch.addEventListener('click', async () => {
     ytMeta.textContent = `${info.uploader || ''}  •  ${info.duration || ''}`;
 
     ytFormat.innerHTML = '';
+    const groups = {};
     (info.formats || []).forEach(f => {
-      const opt = document.createElement('option');
-      opt.value = f.value;
-      opt.textContent = f.label;
-      ytFormat.appendChild(opt);
+      const grp = f.group || 'Other';
+      if (!groups[grp]) groups[grp] = [];
+      groups[grp].push(f);
+    });
+    Object.keys(groups).forEach(grp => {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = grp;
+      groups[grp].forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.value;
+        opt.textContent = f.label;
+        optgroup.appendChild(opt);
+      });
+      ytFormat.appendChild(optgroup);
     });
 
     ytCard.classList.remove('hidden');
@@ -136,6 +147,7 @@ const spThumb    = document.getElementById('sp-thumb');
 const spTitle    = document.getElementById('sp-title');
 const spMeta     = document.getElementById('sp-meta');
 const spTracks   = document.getElementById('sp-tracks');
+const spFormat   = document.getElementById('sp-format');
 const spDownload = document.getElementById('sp-download');
 const spProgress = document.getElementById('sp-progress');
 
@@ -178,7 +190,8 @@ spFetch.addEventListener('click', async () => {
 
 spDownload.addEventListener('click', () => {
   if (!spCurrentUrl) return;
-  const downloadUrl = `/api/spotify/download?url=${encodeURIComponent(spCurrentUrl)}`;
+  const fmt = spFormat.value;
+  const downloadUrl = `/api/spotify/download?url=${encodeURIComponent(spCurrentUrl)}&format=${encodeURIComponent(fmt)}`;
 
   spDownload.disabled = true;
   spProgress.classList.remove('hidden');
