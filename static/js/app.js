@@ -1,0 +1,212 @@
+/* ── Tab switching ─────────────────────────────────────────────────── */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.panel').forEach(p => {
+      p.classList.remove('active');
+      p.classList.add('hidden');
+    });
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    const target = document.getElementById(tab.dataset.tab);
+    target.classList.add('active');
+    target.classList.remove('hidden');
+  });
+});
+
+/* ── Toast system ──────────────────────────────────────────────────── */
+function showToast(message, type = 'info', duration = 4000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span>${escHtml(message)}</span>
+    <button class="toast-close" aria-label="Close">×</button>
+  `;
+  toast.querySelector('.toast-close').addEventListener('click', () => removeToast(toast));
+  container.appendChild(toast);
+  if (duration > 0) setTimeout(() => removeToast(toast), duration);
+  return toast;
+}
+
+function removeToast(toast) {
+  toast.style.animation = 'fadeOut .3s ease forwards';
+  setTimeout(() => toast.remove(), 300);
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ── Generic fetch-with-error-handling ─────────────────────────────── */
+async function apiPost(endpoint, body) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   YouTube
+═══════════════════════════════════════════════════════════════════════ */
+const ytUrl      = document.getElementById('yt-url');
+const ytFetch    = document.getElementById('yt-fetch');
+const ytCard     = document.getElementById('yt-card');
+const ytThumb    = document.getElementById('yt-thumb');
+const ytTitle    = document.getElementById('yt-title');
+const ytMeta     = document.getElementById('yt-meta');
+const ytFormat   = document.getElementById('yt-format');
+const ytDownload = document.getElementById('yt-download');
+const ytProgress = document.getElementById('yt-progress');
+
+let ytCurrentUrl = '';
+
+ytUrl.addEventListener('keydown', e => { if (e.key === 'Enter') ytFetch.click(); });
+
+ytFetch.addEventListener('click', async () => {
+  const url = ytUrl.value.trim();
+  if (!url) { showToast('Please enter a YouTube URL', 'error'); return; }
+
+  ytFetch.disabled = true;
+  ytFetch.textContent = 'Fetching…';
+  ytCard.classList.add('hidden');
+  ytProgress.classList.add('hidden');
+
+  try {
+    const info = await apiPost('/api/youtube/info', { url });
+    ytCurrentUrl = info.url;
+
+    ytThumb.src = info.thumbnail || '';
+    ytThumb.onerror = () => { ytThumb.src = ''; };
+    ytTitle.textContent = info.title;
+    ytMeta.textContent = `${info.uploader || ''}  •  ${info.duration || ''}`;
+
+    ytFormat.innerHTML = '';
+    (info.formats || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.value;
+      opt.textContent = f.label;
+      ytFormat.appendChild(opt);
+    });
+
+    ytCard.classList.remove('hidden');
+  } catch (err) {
+    showToast(err.message || 'Failed to fetch video info', 'error');
+  } finally {
+    ytFetch.disabled = false;
+    ytFetch.textContent = 'Fetch';
+  }
+});
+
+ytDownload.addEventListener('click', () => {
+  if (!ytCurrentUrl) return;
+  const fmt = ytFormat.value;
+  const downloadUrl = `/api/youtube/download?url=${encodeURIComponent(ytCurrentUrl)}&format=${encodeURIComponent(fmt)}`;
+
+  ytDownload.disabled = true;
+  ytProgress.classList.remove('hidden');
+
+  // Use an <a> + iframe trick: iframe loads the download URL which triggers
+  // the browser's native "Save file" dialog without leaving the page.
+  triggerDownload(downloadUrl, () => {
+    ytDownload.disabled = false;
+    ytProgress.classList.add('hidden');
+    showToast('Download started!', 'success');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Spotify
+═══════════════════════════════════════════════════════════════════════ */
+const spUrl      = document.getElementById('sp-url');
+const spFetch    = document.getElementById('sp-fetch');
+const spCard     = document.getElementById('sp-card');
+const spThumb    = document.getElementById('sp-thumb');
+const spTitle    = document.getElementById('sp-title');
+const spMeta     = document.getElementById('sp-meta');
+const spTracks   = document.getElementById('sp-tracks');
+const spDownload = document.getElementById('sp-download');
+const spProgress = document.getElementById('sp-progress');
+
+let spCurrentUrl = '';
+
+spUrl.addEventListener('keydown', e => { if (e.key === 'Enter') spFetch.click(); });
+
+spFetch.addEventListener('click', async () => {
+  const url = spUrl.value.trim();
+  if (!url) { showToast('Please enter a Spotify URL', 'error'); return; }
+
+  spFetch.disabled = true;
+  spFetch.textContent = 'Fetching…';
+  spCard.classList.add('hidden');
+  spProgress.classList.add('hidden');
+
+  try {
+    const info = await apiPost('/api/spotify/info', { url });
+    spCurrentUrl = info.url;
+
+    spThumb.src = info.thumbnail || '';
+    spThumb.onerror = () => { spThumb.src = ''; };
+    spTitle.textContent = info.name;
+    spMeta.textContent = `${info.artist || ''}  •  ${info.album || ''}`;
+
+    if (info.type !== 'track') {
+      spTracks.textContent = `${info.track_count} track${info.track_count !== 1 ? 's' : ''} — downloads as ZIP`;
+    } else {
+      spTracks.textContent = '';
+    }
+
+    spCard.classList.remove('hidden');
+  } catch (err) {
+    showToast(err.message || 'Failed to fetch Spotify info', 'error');
+  } finally {
+    spFetch.disabled = false;
+    spFetch.textContent = 'Fetch';
+  }
+});
+
+spDownload.addEventListener('click', () => {
+  if (!spCurrentUrl) return;
+  const downloadUrl = `/api/spotify/download?url=${encodeURIComponent(spCurrentUrl)}`;
+
+  spDownload.disabled = true;
+  spProgress.classList.remove('hidden');
+  document.querySelector('#sp-progress .progress-label').textContent =
+    'Preparing download… (this may take a while for playlists)';
+
+  triggerDownload(downloadUrl, () => {
+    spDownload.disabled = false;
+    spProgress.classList.add('hidden');
+    showToast('Download started!', 'success');
+  });
+});
+
+/* ── Download trigger helper ───────────────────────────────────────── */
+/**
+ * Trigger a file download by injecting a hidden <iframe>.
+ * The iframe's load event fires once the response headers arrive,
+ * which is good enough to re-enable the UI.
+ */
+function triggerDownload(url, onStart) {
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = url;
+  iframe.addEventListener('load', () => {
+    onStart && onStart();
+    // Keep the iframe alive briefly so the browser can stream the file,
+    // then remove it.
+    setTimeout(() => iframe.remove(), 60000);
+  });
+  document.body.appendChild(iframe);
+}

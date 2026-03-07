@@ -1,0 +1,7 @@
+Flask==3.1.0
+Flask-Limiter==3.9.4
+yt-dlp==2025.3.31
+spotdl==4.2.10
+zipstream-new==1.1.8
+requests==2.32.3
+Werkzeug==3.1.3

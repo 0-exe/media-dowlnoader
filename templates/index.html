@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Media Downloader</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo-wrap">
+        <img src="/static/img/logo.svg" alt="Logo" class="logo" />
+        <span class="app-title">Media Downloader</span>
+      </div>
+      <span class="version-badge">v{{ version }}</span>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Tabs -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="youtube" role="tab" aria-selected="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 0 0 .5 6.19C0 8.04 0 12 0 12s0 3.96.5 5.81a3.02 3.02 0 0 0 2.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14C24 15.96 24 12 24 12s0-3.96-.5-5.81zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg>
+        YouTube
+      </button>
+      <button class="tab" data-tab="spotify" role="tab" aria-selected="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.56 17.31a.75.75 0 0 1-1.03.25c-2.82-1.72-6.37-2.11-10.55-1.16a.75.75 0 1 1-.33-1.46c4.57-1.04 8.49-.6 11.66 1.34a.75.75 0 0 1 .25 1.03zm1.48-3.3a.94.94 0 0 1-1.29.31C14.7 12.37 10.6 11.86 7.41 12.8a.94.94 0 1 1-.54-1.8c3.67-1.1 8.22-.56 11.36 1.7a.94.94 0 0 1 .31 1.31zm.13-3.43C15.69 8.15 10.57 7.97 7.26 9a1.12 1.12 0 1 1-.65-2.15c3.81-1.15 10.15-.93 14.15 1.55a1.12 1.12 0 0 1-1.59 1.18z"/></svg>
+        Spotify
+      </button>
+    </div>
+
+    <!-- ── YouTube Panel ─────────────────────────────────── -->
+    <section id="youtube" class="panel active" role="tabpanel">
+      <div class="input-row">
+        <input
+          id="yt-url"
+          type="url"
+          class="url-input"
+          placeholder="Paste YouTube URL…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="yt-fetch" class="btn btn-primary">Fetch</button>
+      </div>
+
+      <!-- Preview card -->
+      <div id="yt-card" class="preview-card hidden">
+        <img id="yt-thumb" class="thumb" alt="Thumbnail" />
+        <div class="card-info">
+          <h2 id="yt-title" class="card-title"></h2>
+          <p id="yt-meta" class="card-meta"></p>
+          <div class="format-row">
+            <select id="yt-format" class="format-select"></select>
+            <button id="yt-download" class="btn btn-accent">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 4h14v-2H5v2z"/></svg>
+              Download
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div id="yt-progress" class="progress-wrap hidden">
+        <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+        <span class="progress-label">Downloading…</span>
+      </div>
+    </section>
+
+    <!-- ── Spotify Panel ─────────────────────────────────── -->
+    <section id="spotify" class="panel hidden" role="tabpanel">
+      <div class="input-row">
+        <input
+          id="sp-url"
+          type="url"
+          class="url-input"
+          placeholder="Paste Spotify URL…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="sp-fetch" class="btn btn-primary">Fetch</button>
+      </div>
+
+      <!-- Preview card -->
+      <div id="sp-card" class="preview-card hidden">
+        <img id="sp-thumb" class="thumb" alt="Album art" />
+        <div class="card-info">
+          <h2 id="sp-title" class="card-title"></h2>
+          <p id="sp-meta" class="card-meta"></p>
+          <p id="sp-tracks" class="card-tracks"></p>
+          <button id="sp-download" class="btn btn-accent">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 4h14v-2H5v2z"/></svg>
+            Download
+          </button>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div id="sp-progress" class="progress-wrap hidden">
+        <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
+        <span class="progress-label">Preparing download…</span>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Toast container ────────────────────────────────── -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- ── Footer ─────────────────────────────────────────── -->
+  <footer class="footer">
+    <span>Media Downloader v{{ version }}</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/0-exe/media-dowlnoader" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
