@@ -94,20 +94,127 @@ docker compose up -d
 
 ---
 
-## 🚀 One-Line Proxmox Install
+## 🚀 Proxmox LXC Install
 
-Run this on the **Proxmox host**:
+### Before You Run
+
+Open `install.sh` (or pass environment variables) and confirm these defaults match your Proxmox setup:
+
+| Variable | Default | What to change |
+|----------|---------|----------------|
+| `CT_BRIDGE` | `vmbr0` | Your Proxmox network bridge (run `ip link` on the host to list bridges) |
+| `CT_STORAGE` | `local-lvm` | Storage pool for the container rootfs (`pvesm status` lists available pools) |
+| `CT_TEMPLATE_STORAGE` | `local` | Where LXC templates are stored |
+| `CT_RAM` | `512` MB | Increase to `1024` if you plan heavy playlist downloads |
+| `CT_DISK` | `4` GB | Increase if you want more scratch space (files are streamed and then deleted, so 4 GB is normally fine) |
+
+### Run the installer
+
+Execute this **on the Proxmox host** shell (not inside any container):
 
 ```bash
 bash -c "$(wget -qO- https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/install.sh)"
 ```
 
-This will:
+The script will:
 1. Find the next free CT ID (≥ 200)
 2. Download a Debian 12 LXC template if not already present
-3. Create a container (1 CPU, 512 MB RAM, 4 GB disk)
-4. Run `setup.sh` inside the container (installs all deps + systemd service)
-5. Print the access URL: `http://<CONTAINER_IP>:8080`
+3. Create an unprivileged container (1 CPU, 512 MB RAM, 4 GB disk, DHCP, nesting enabled)
+4. Run `setup.sh` inside the container — installs all dependencies and creates a `systemd` service
+5. Print the container ID and access URL: `http://<CONTAINER_IP>:8080`
+
+### After the installer finishes
+
+**1. Open the web UI**
+
+Navigate to the URL printed at the end of the script in any browser:
+```
+http://<CONTAINER_IP>:8080
+```
+
+If you don't know the IP, run this on the Proxmox host:
+```bash
+pct exec <CTID> -- hostname -I
+```
+
+**2. (Optional) Set a persistent secret key**
+
+By default a random `SECRET_KEY` is generated at startup, which means browser sessions are lost when the service restarts. To fix this, open a shell in the container and set it permanently:
+
+```bash
+# Open a shell inside the container
+pct enter <CTID>
+
+# Edit the systemd service to add the secret key
+systemctl edit media-downloader
+```
+
+Add the following under `[Service]`:
+```ini
+[Service]
+Environment="SECRET_KEY=replace-with-a-long-random-string"
+```
+
+Then reload and restart:
+```bash
+systemctl daemon-reload && systemctl restart media-downloader
+exit
+```
+
+**3. Check the service is running**
+
+```bash
+# From the Proxmox host:
+pct exec <CTID> -- systemctl status media-downloader
+
+# View live logs:
+pct exec <CTID> -- journalctl -u media-downloader -f
+
+# View the last 50 log lines:
+pct exec <CTID> -- journalctl -u media-downloader -n 50
+```
+
+**4. Manage the container**
+
+```bash
+# Stop the container
+pct stop <CTID>
+
+# Start the container
+pct start <CTID>
+
+# Open an interactive shell inside the container
+pct enter <CTID>
+
+# Restart just the application service (container stays running)
+pct exec <CTID> -- systemctl restart media-downloader
+```
+
+**5. Update the application**
+
+To pull the latest code and restart the service:
+
+```bash
+pct exec <CTID> -- bash -c "
+  git -C /opt/media-downloader pull --ff-only && \
+  systemctl restart media-downloader
+"
+```
+
+Or re-run the full `setup.sh` to also update `yt-dlp` and `spotdl`:
+
+```bash
+pct exec <CTID> -- bash -c \
+  "curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.sh | bash"
+```
+
+**6. Keep `yt-dlp` up to date**
+
+YouTube changes frequently. If downloads suddenly stop working, update `yt-dlp`:
+
+```bash
+pct exec <CTID> -- yt-dlp -U
+```
 
 ---
 
@@ -201,12 +308,15 @@ media-dowlnoader/
 
 | Problem | Fix |
 |---------|-----|
-| `yt-dlp` returns errors | Run `yt-dlp -U` to update to the latest version |
+| `yt-dlp` returns errors | Run `yt-dlp -U` (or `pct exec <CTID> -- yt-dlp -U`) to update to the latest version |
 | Spotify 401 / auth errors | `spotdl` may need a Spotify developer token — see [spotdl docs](https://spotdl.readthedocs.io/) |
-| Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge |
+| Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge (`ip link` on the host) |
+| Can't reach the UI | Make sure the container is running (`pct status <CTID>`) and confirm the IP with `pct exec <CTID> -- hostname -I` |
 | Port 8080 already in use | Set the `APP_PORT` environment variable to a different port |
 | Service won't start | `pct exec <CTID> -- journalctl -u media-downloader -n 50` |
+| Sessions lost after restart | Set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [After the installer finishes](#after-the-installer-finishes)) |
 | SECRET_KEY warning in logs | Set the `SECRET_KEY` environment variable for production deployments |
+| Wrong storage pool error | Change `CT_STORAGE` in `install.sh` to match your pool (`pvesm status` lists them) |
 
 ---
 
