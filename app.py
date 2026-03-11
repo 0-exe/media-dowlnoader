@@ -1,8 +1,21 @@
 """
 Media Downloader — Flask backend
+=================================
+
 Downloads YouTube and Spotify media to a temporary server-side file, then
-streams the completed file to the browser (with Content-Length for progress),
-and deletes the temp file once the transfer is done.
+streams the completed file to the browser (with ``Content-Length`` for
+progress), and deletes the temp file once the transfer is done.
+
+Environment variables
+---------------------
+SECRET_KEY   : Flask secret key.  A random key is generated if not set
+               (sessions will not survive restarts in that case).
+APP_PORT     : Port to listen on (default ``8080``).
+
+External tools required at runtime:
+    * ``yt-dlp``  — YouTube downloads
+    * ``spotdl``  — Spotify downloads
+    * ``ffmpeg``  — media post-processing
 """
 
 import json
@@ -36,7 +49,16 @@ logging.basicConfig(
 logger = logging.getLogger("media-downloader")
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", os.urandom(24).hex())
+
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    _secret = os.urandom(24).hex()
+    logger.warning(
+        "SECRET_KEY is not set — using a random key. "
+        "Sessions will not survive restarts. "
+        "Set the SECRET_KEY environment variable for production use."
+    )
+app.config["SECRET_KEY"] = _secret
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -45,7 +67,7 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -411,10 +433,15 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, timeout=300)
+        proc = subprocess.run(cmd, capture_output=True, timeout=300)
     except subprocess.TimeoutExpired:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return jsonify({"error": "Download timed out"}), 504
+
+    if proc.returncode != 0:
+        logger.warning("spotdl track stderr: %s", proc.stderr.decode(errors="replace"))
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"error": "Track download failed"}), 500
 
     try:
         files = [f for f in os.listdir(tmp_dir) if f.endswith(f".{fmt}")]
@@ -427,6 +454,7 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
 
     fpath = os.path.join(tmp_dir, files[0])
     filename = _sanitize_filename(files[0])
+    file_size = os.path.getsize(fpath)
 
     def generate():
         try:
@@ -445,6 +473,7 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
 
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Length": str(file_size),
         "X-Accel-Buffering": "no",
     }
     return Response(
@@ -480,6 +509,8 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
 
     if proc.returncode != 0:
         logger.warning("spotdl stderr: %s", proc.stderr.decode(errors="replace"))
+        # spotdl may still have downloaded *some* tracks for collections,
+        # so we only abort when zero files were produced (checked below).
 
     # Stream the resulting files as a ZIP
     zs = zipstream.ZipFile(mode="w", compression=zipstream.ZIP_DEFLATED)
@@ -543,4 +574,5 @@ def server_error(e):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    port = int(os.environ.get("APP_PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
