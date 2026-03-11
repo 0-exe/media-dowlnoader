@@ -98,83 +98,132 @@ docker compose up -d
 
 ### Before You Run
 
-Open `install.sh` (or pass environment variables) and confirm these defaults match your Proxmox setup:
+Check these settings in `install.sh` and change any that don't match your Proxmox setup:
 
 | Variable | Default | What to change |
 |----------|---------|----------------|
-| `CT_BRIDGE` | `vmbr0` | Your Proxmox network bridge (run `ip link` on the host to list bridges) |
-| `CT_STORAGE` | `local-lvm` | Storage pool for the container rootfs (`pvesm status` lists available pools) |
+| `CT_BRIDGE` | `vmbr0` | Your Proxmox network bridge. Run `ip link` on the node to list bridges |
+| `CT_STORAGE` | `local-lvm` | Storage pool for the container disk. Run `pvesm status` to list available pools |
 | `CT_TEMPLATE_STORAGE` | `local` | Where LXC templates are stored |
 | `CT_RAM` | `512` MB | Increase to `1024` if you plan heavy playlist downloads |
-| `CT_DISK` | `4` GB | Increase if you want more scratch space (files are streamed and then deleted, so 4 GB is normally fine) |
+| `CT_DISK` | `4` GB | Increase if you need more scratch space (files are streamed then deleted, so 4 GB is usually fine) |
 
-### Run the installer
+### Run the Installer
 
-Execute this **on the Proxmox host** shell (not inside any container):
+Run this **on the Proxmox node shell** (not inside a container):
 
 ```bash
 bash -c "$(wget -qO- https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/install.sh)"
 ```
 
 The script will:
-1. Find the next free CT ID (≥ 200)
-2. Download a Debian 12 LXC template if not already present
-3. Create an unprivileged container (1 CPU, 512 MB RAM, 4 GB disk, DHCP, nesting enabled)
+1. Find the next free CT ID (starting at 200)
+2. Download a Debian 12 LXC template (if not already present)
+3. Create an unprivileged container with nesting enabled (1 CPU, 512 MB RAM, 4 GB disk, DHCP)
 4. Run `setup.sh` inside the container — installs all dependencies and creates a `systemd` service
 5. Print the container ID and access URL: `http://<CONTAINER_IP>:8080`
 
-### After the installer finishes
+### After the Installer Finishes
 
 **1. Open the web UI**
 
-Navigate to the URL printed at the end of the script in any browser:
+Navigate to the URL printed at the end of the installer in any browser:
 ```
 http://<CONTAINER_IP>:8080
 ```
 
-If you don't know the IP, run this on the Proxmox host:
+If you don't see the IP, run this on the Proxmox node:
 ```bash
 pct exec <CTID> -- hostname -I
 ```
 
-**2. (Optional) Set a persistent secret key**
+---
 
-By default a random `SECRET_KEY` is generated at startup, which means browser sessions are lost when the service restarts. To fix this, open a shell in the container and set it permanently:
+**2. Enter the container shell**
+
+For all configuration and management tasks below, first open a shell **inside the container**:
 
 ```bash
-# Open a shell inside the container
+# Run on the Proxmox node to open a shell inside the LXC
 pct enter <CTID>
+```
 
-# Edit the systemd service to add the secret key
+You are now inside the container. All the commands in the sections below are run here.
+
+---
+
+**3. (Optional) Set a persistent secret key**
+
+By default a random `SECRET_KEY` is generated at every startup, so browser sessions are lost when the service restarts. To set a permanent key, open a drop-in override editor:
+
+```bash
+# Inside the container shell:
 systemctl edit media-downloader
 ```
 
-Add the following under `[Service]`:
+The editor opens an empty override file. Enter the following (see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf) for all available options):
+
 ```ini
 [Service]
 Environment="SECRET_KEY=replace-with-a-long-random-string"
 ```
 
-Then reload and restart:
+> **Tip:** Generate a secure value with `openssl rand -hex 32`.
+
+Save and close the editor, then apply the change:
+
 ```bash
-systemctl daemon-reload && systemctl restart media-downloader
-exit
+# Inside the container shell:
+systemctl daemon-reload
+systemctl restart media-downloader
 ```
 
-**3. Check the service is running**
+---
+
+**4. Check the service status**
 
 ```bash
-# From the Proxmox host:
-pct exec <CTID> -- systemctl status media-downloader
+# Inside the container shell:
+systemctl status media-downloader
 
-# View live logs:
-pct exec <CTID> -- journalctl -u media-downloader -f
+# Follow live logs:
+journalctl -u media-downloader -f
 
 # View the last 50 log lines:
-pct exec <CTID> -- journalctl -u media-downloader -n 50
+journalctl -u media-downloader -n 50
 ```
 
-**4. Manage the container**
+---
+
+**5. Update the application**
+
+```bash
+# Inside the container shell:
+git -C /opt/media-downloader pull --ff-only
+systemctl restart media-downloader
+```
+
+To also update `yt-dlp` and `spotdl`, re-run the full setup script:
+
+```bash
+# Inside the container shell:
+curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.sh | bash
+```
+
+---
+
+**6. Keep `yt-dlp` up to date**
+
+YouTube changes frequently. If downloads suddenly stop working, update `yt-dlp`:
+
+```bash
+# Inside the container shell:
+yt-dlp -U
+```
+
+---
+
+**7. Manage the container** *(run on the Proxmox node)*
 
 ```bash
 # Stop the container
@@ -183,37 +232,11 @@ pct stop <CTID>
 # Start the container
 pct start <CTID>
 
-# Open an interactive shell inside the container
+# Open a shell inside the container
 pct enter <CTID>
 
-# Restart just the application service (container stays running)
+# Restart just the app service without entering the container
 pct exec <CTID> -- systemctl restart media-downloader
-```
-
-**5. Update the application**
-
-To pull the latest code and restart the service:
-
-```bash
-pct exec <CTID> -- bash -c "
-  git -C /opt/media-downloader pull --ff-only && \
-  systemctl restart media-downloader
-"
-```
-
-Or re-run the full `setup.sh` to also update `yt-dlp` and `spotdl`:
-
-```bash
-pct exec <CTID> -- bash -c \
-  "curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.sh | bash"
-```
-
-**6. Keep `yt-dlp` up to date**
-
-YouTube changes frequently. If downloads suddenly stop working, update `yt-dlp`:
-
-```bash
-pct exec <CTID> -- yt-dlp -U
 ```
 
 ---
@@ -291,8 +314,10 @@ media-dowlnoader/
 ├── app.py              # Flask backend
 ├── Dockerfile          # Docker image definition
 ├── requirements.txt    # Python dependencies
-├── install.sh          # Proxmox LXC one-liner (run on host)
+├── install.sh          # Proxmox LXC one-liner (run on the Proxmox node)
 ├── setup.sh            # In-container setup (installs deps + systemd)
+├── docs/
+│   └── systemd-override.example.conf   # Example systemd drop-in for env vars
 ├── static/
 │   ├── css/style.css   # Dark-themed responsive CSS
 │   ├── js/app.js       # Frontend logic
@@ -308,14 +333,14 @@ media-dowlnoader/
 
 | Problem | Fix |
 |---------|-----|
-| `yt-dlp` returns errors | Run `yt-dlp -U` (or `pct exec <CTID> -- yt-dlp -U`) to update to the latest version |
+| `yt-dlp` returns errors | Enter the container (`pct enter <CTID>`) and run `yt-dlp -U` to update |
 | Spotify 401 / auth errors | `spotdl` may need a Spotify developer token — see [spotdl docs](https://spotdl.readthedocs.io/) |
-| Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge (`ip link` on the host) |
+| Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge (`ip link` on the node) |
 | Can't reach the UI | Make sure the container is running (`pct status <CTID>`) and confirm the IP with `pct exec <CTID> -- hostname -I` |
-| Port 8080 already in use | Set the `APP_PORT` environment variable to a different port |
-| Service won't start | `pct exec <CTID> -- journalctl -u media-downloader -n 50` |
-| Sessions lost after restart | Set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [After the installer finishes](#after-the-installer-finishes)) |
-| SECRET_KEY warning in logs | Set the `SECRET_KEY` environment variable for production deployments |
+| Port 8080 already in use | Enter the container and set `APP_PORT` via `systemctl edit media-downloader` (see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf)) |
+| Service won't start | Enter the container and run `journalctl -u media-downloader -n 50` |
+| Sessions lost after restart | Enter the container and set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [step 3](#3-optional-set-a-persistent-secret-key)) |
+| SECRET_KEY warning in logs | Set the `SECRET_KEY` environment variable — see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf) |
 | Wrong storage pool error | Change `CT_STORAGE` in `install.sh` to match your pool (`pvesm status` lists them) |
 
 ---
