@@ -261,6 +261,50 @@ pct exec <CTID> -- systemctl restart media-downloader
 
 ---
 
+**8. (Optional) Expose via Nginx Proxy Manager**
+
+[Nginx Proxy Manager (NPM)](https://nginxproxymanager.com/) lets you put the app behind a nice domain name and add free SSL certificates via Let's Encrypt — all through a web UI.
+
+> **Prerequisites:** NPM must already be running on your network (e.g. in its own LXC or Docker container). You need the LXC container's IP address (`pct exec <CTID> -- hostname -I`).
+
+#### Create a Proxy Host in NPM
+
+1. Open the NPM web UI (typically `http://<NPM_HOST>:81`).
+2. Go to **Hosts → Proxy Hosts → Add Proxy Host**.
+3. Fill in the **Details** tab:
+
+   | Field | Value |
+   |-------|-------|
+   | **Domain Names** | `downloader.yourdomain.com` *(or any hostname you control)* |
+   | **Scheme** | `http` |
+   | **Forward Hostname / IP** | `<CONTAINER_IP>` *(IP of the media-downloader LXC)* |
+   | **Forward Port** | `8080` |
+   | **Cache Assets** | Off |
+   | **Block Common Exploits** | On *(recommended)* |
+   | **Websockets Support** | On *(required for progress streaming)* |
+
+4. (Optional) Switch to the **SSL** tab:
+   - Select **Request a new SSL Certificate**.
+   - Enable **Force SSL** and **HTTP/2 Support**.
+   - Enter your email address and agree to the Let's Encrypt TOS.
+   - Click **Save**.
+
+5. Click **Save** on the Details tab. NPM will write the nginx config and (if SSL was chosen) obtain a certificate automatically.
+
+6. Navigate to your domain in a browser — the Media Downloader UI will load over HTTPS.
+
+#### No domain? Use a local hostname
+
+If you only need LAN access without a public domain, skip SSL and set **Domain Names** to any hostname you like (e.g. `downloader.local`). Add a matching entry to your router's DNS or your local `/etc/hosts` file:
+
+```
+<CONTAINER_IP>  downloader.local
+```
+
+Then open `http://downloader.local` in your browser.
+
+---
+
 ## 🛠 Manual Install
 
 ```bash
@@ -363,6 +407,8 @@ media-dowlnoader/
 | Sessions lost after restart | Enter the container and set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [step 3](#3-optional-set-a-persistent-secret-key)) |
 | SECRET_KEY warning in logs | Set the `SECRET_KEY` environment variable — see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf) |
 | Wrong storage pool error | Change `CT_STORAGE` in `install.sh` to match your pool (`pvesm status` lists them) |
+| NPM shows 502 Bad Gateway | Confirm the container is running and the IP / port `8080` are correct in the NPM Proxy Host settings |
+| Downloads hang or progress bar freezes behind NPM | Enable **Websockets Support** in the NPM Proxy Host settings and increase the NPM nginx read timeout (Advanced tab: `proxy_read_timeout 3600;`) |
 
 ---
 
