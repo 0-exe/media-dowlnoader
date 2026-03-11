@@ -21,6 +21,26 @@
 
 ---
 
+## ⚠️ This Is a Python Project — npm Is Not Needed
+
+**Media Downloader is a Python/Flask application.** It does **not** use Node.js, npm, or any JavaScript build step. If you clone the repo and run `npm install` or `npm start` you will get an error because there is no `package.json`.
+
+Dependency management is handled entirely with **pip**:
+
+```bash
+pip install -r requirements.txt
+```
+
+The server is started with **Python**:
+
+```bash
+python app.py
+```
+
+See the [Local Demo](#-local-demo-website-ui-only) or [Manual Install](#-manual-install) sections below for the full setup steps.
+
+---
+
 ## 💻 Local Demo (Website UI Only)
 
 You can run the web interface locally to preview the UI **without** installing `yt-dlp` or `spotdl`. Fetch/Download actions will return errors, but the full UI is visible.
@@ -333,6 +353,7 @@ media-dowlnoader/
 
 | Problem | Fix |
 |---------|-----|
+| `npm install` / `npm start` gives an error | This is a Python project — there is no `package.json`. Use `pip install -r requirements.txt` and `python app.py` instead (see [setup note](#️-this-is-a-python-project--npm-is-not-needed)) |
 | `yt-dlp` returns errors | Enter the container (`pct enter <CTID>`) and run `yt-dlp -U` to update |
 | Spotify 401 / auth errors | `spotdl` may need a Spotify developer token — see [spotdl docs](https://spotdl.readthedocs.io/) |
 | Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge (`ip link` on the node) |
