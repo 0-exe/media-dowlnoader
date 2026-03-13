@@ -123,15 +123,20 @@ ytFetch.addEventListener('click', async () => {
 ytDownload.addEventListener('click', () => {
   if (!ytCurrentUrl) return;
   const fmt = ytFormat.value;
-  const downloadUrl = `/api/youtube/download?url=${encodeURIComponent(ytCurrentUrl)}&format=${encodeURIComponent(fmt)}`;
 
   ytDownload.disabled = true;
   ytProgress.classList.remove('hidden');
+  const label = document.querySelector('#yt-progress .progress-label');
 
-  triggerDownload(downloadUrl, () => {
-    ytDownload.disabled = false;
-    ytProgress.classList.add('hidden');
-  });
+  startJobDownload(
+    '/api/youtube/start',
+    { url: ytCurrentUrl, format: fmt },
+    label,
+    () => {
+      ytDownload.disabled = false;
+      ytProgress.classList.add('hidden');
+    },
+  );
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -188,63 +193,89 @@ spFetch.addEventListener('click', async () => {
 spDownload.addEventListener('click', () => {
   if (!spCurrentUrl) return;
   const fmt = spFormat.value;
-  const downloadUrl = `/api/spotify/download?url=${encodeURIComponent(spCurrentUrl)}&format=${encodeURIComponent(fmt)}`;
 
   spDownload.disabled = true;
   spProgress.classList.remove('hidden');
-  document.querySelector('#sp-progress .progress-label').textContent =
-    'Preparing download… (this may take a while for playlists)';
+  const label = document.querySelector('#sp-progress .progress-label');
+  label.textContent = 'Preparing download… (this may take a while for playlists)';
 
-  triggerDownload(downloadUrl, () => {
-    spDownload.disabled = false;
-    spProgress.classList.add('hidden');
-  });
+  startJobDownload(
+    '/api/spotify/start',
+    { url: spCurrentUrl, format: fmt },
+    label,
+    () => {
+      spDownload.disabled = false;
+      spProgress.classList.add('hidden');
+    },
+  );
 });
 
-/* ── Download trigger helper ───────────────────────────────────────── */
+/* ── Download helpers ──────────────────────────────────────────────── */
 /**
- * Trigger a file download using fetch() + Blob.
- * This approach reliably delivers files to the browser across all modern
- * browsers, unlike the hidden-iframe trick which many browsers silently
- * block or ignore for attachment responses.
+ * Start a background download job, poll for completion, then navigate the
+ * browser directly to the download URL so the file streams straight to disk.
  *
- * @param {string} url       Download endpoint URL
- * @param {Function} onDone  Called once the download completes or fails
+ * Using window.location for the final step (instead of fetch+blob) avoids:
+ *   • Loading the entire file into JavaScript memory.
+ *   • Reverse-proxy read-timeout issues (the file is already on disk when
+ *     the browser connects to /api/jobs/<id>/download).
+ *
+ * @param {string}   startUrl  POST endpoint that starts the job
+ * @param {object}   body      JSON body for the start request
+ * @param {Element}  label     Progress label element to update
+ * @param {Function} onDone    Called once the download starts or fails
  */
-async function triggerDownload(url, onDone) {
+async function startJobDownload(startUrl, body, label, onDone) {
+  // How often to poll (ms) and max total wait (ms)
+  const POLL_INTERVAL = 2000;
+  const MAX_WAIT_MS = 10 * 60 * 1000; // 10 minutes
+  const DOWNLOAD_START_DELAY_MS = 1500;
+
   try {
-    const res = await fetch(url);
+    if (label) label.textContent = 'Starting download…';
 
-    if (!res.ok) {
-      // Server returned an error — try to parse the JSON message
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${res.status}`);
+    const startRes = await fetch(startUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const startData = await startRes.json().catch(() => ({}));
+    if (!startRes.ok) throw new Error(startData.error || `HTTP ${startRes.status}`);
+
+    const jobId = startData.job_id;
+    if (!jobId) throw new Error('No job ID returned by server');
+
+    // Poll /api/jobs/<id>/status until ready or error
+    const deadline = Date.now() + MAX_WAIT_MS;
+    let dots = 0;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+      const statusRes = await fetch(`/api/jobs/${jobId}/status`);
+      const statusData = await statusRes.json().catch(() => ({}));
+
+      if (!statusRes.ok) throw new Error(statusData.error || `HTTP ${statusRes.status}`);
+
+      if (statusData.status === 'error') {
+        throw new Error(statusData.error || 'Download failed on server');
+      }
+
+      if (statusData.status === 'ready') {
+        if (label) label.textContent = 'Download ready — saving file…';
+        // Navigate directly: browser streams file to disk, no memory buffering,
+        // and no long-lived connection through the proxy during the yt-dlp phase.
+        window.location.href = `/api/jobs/${jobId}/download`;
+        // Give the browser a moment to start the download before re-enabling the button.
+        setTimeout(() => onDone && onDone(), DOWNLOAD_START_DELAY_MS);
+        return;
+      }
+
+      // Still pending — update label with animated dots
+      dots = (dots + 1) % 4;
+      if (label) label.textContent = `Preparing download${'.'.repeat(dots)}`;
     }
 
-    // Extract filename from Content-Disposition header
-    const disposition = res.headers.get('Content-Disposition');
-    let filename = 'download';
-    if (disposition) {
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      if (match) filename = match[1];
-    }
-
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    // Revoke the blob URL after a short delay so the browser can start
-    // the save-file dialog before the URL is invalidated.
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-
-    onDone && onDone();
+    throw new Error('Download timed out while waiting for server');
   } catch (err) {
     showToast(err.message || 'Download failed', 'error');
     onDone && onDone();
