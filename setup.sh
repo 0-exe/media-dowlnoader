@@ -13,6 +13,10 @@ ok()  { echo -e "\033[1;32m[ ok ]\033[0m $*"; }
 err() { echo -e "\033[1;31m[FAIL]\033[0m $*" >&2; exit 1; }
 
 # ── 0. Remove root password (password-less shell access) ────────────
+# Access is already gated at the Proxmox host level (pct/pvesh credentials).
+# Removing the root password lets you open a container shell via
+# `pct enter <CTID>` or the web console without a second login prompt,
+# matching standard Proxmox community helper-script behaviour.
 passwd -d root
 
 # ── 1. System dependencies ───────────────────────────────────────────
