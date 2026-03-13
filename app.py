@@ -6,6 +6,20 @@ Downloads YouTube and Spotify media to a temporary server-side file, then
 streams the completed file to the browser (with ``Content-Length`` for
 progress), and deletes the temp file once the transfer is done.
 
+Architecture note
+-----------------
+Downloads are handled via a two-phase job system to stay compatible with
+reverse proxies (e.g. Nginx Proxy Manager) that enforce short
+``proxy_read_timeout`` values:
+
+1. ``POST /api/youtube/start`` or ``POST /api/spotify/start`` — starts the
+   download in a background thread and immediately returns a ``job_id``.
+2. ``GET /api/jobs/<id>/status`` — the client polls this until the status
+   becomes ``ready`` or ``error``.
+3. ``GET /api/jobs/<id>/download`` — once ready, the browser navigates here
+   directly so the file streams straight to disk without loading it into
+   JavaScript memory.
+
 Environment variables
 ---------------------
 SECRET_KEY   : Flask secret key.  A random key is generated if not set
@@ -28,6 +42,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile as _zipfile
 from urllib.parse import unquote
 
 import requests
@@ -67,7 +82,53 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
+
+# ---------------------------------------------------------------------------
+# Background job management
+# ---------------------------------------------------------------------------
+
+# Each job entry:
+#   {
+#     "status":   "pending" | "ready" | "error",
+#     "error":    str | None,
+#     "tmp_dir":  str | None,   # directory to clean up
+#     "fpath":    str | None,   # path to the final file
+#     "filename": str | None,   # safe filename for Content-Disposition
+#     "mime":     str | None,
+#     "created":  float,        # time.time()
+#   }
+_jobs: dict = {}
+_jobs_lock = threading.Lock()
+
+# Maximum age of a finished/errored job before it is reaped (seconds).
+_JOB_TTL = 3600  # 1 hour
+
+
+def _make_job_id() -> str:
+    return os.urandom(16).hex()
+
+
+def _reap_old_jobs() -> None:
+    """Remove jobs that are older than _JOB_TTL seconds."""
+    cutoff = time.time() - _JOB_TTL
+    with _jobs_lock:
+        stale = [jid for jid, j in _jobs.items() if j["created"] < cutoff]
+        for jid in stale:
+            job = _jobs.pop(jid)
+            if job.get("tmp_dir"):
+                shutil.rmtree(job["tmp_dir"], ignore_errors=True)
+
+
+def _set_job(job_id: str, **kwargs) -> None:
+    with _jobs_lock:
+        _jobs[job_id].update(kwargs)
+
+
+def _get_job(job_id: str) -> dict | None:
+    with _jobs_lock:
+        return dict(_jobs[job_id]) if job_id in _jobs else None
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,6 +271,11 @@ def youtube_info():
 @app.get("/api/youtube/download")
 @limiter.limit("10 per minute")
 def youtube_download():
+    """Legacy single-request download endpoint (kept for backward compatibility).
+
+    New callers should use POST /api/youtube/start + GET /api/jobs/<id>/status
+    + GET /api/jobs/<id>/download instead, which is proxy-friendly.
+    """
     url = unquote((request.args.get("url") or "").strip())
     fmt = (request.args.get("format") or "720p").strip()
 
@@ -343,6 +409,152 @@ def youtube_download():
     )
 
 
+@app.post("/api/youtube/start")
+@limiter.limit("10 per minute")
+def youtube_start():
+    """Start a YouTube download in a background thread.
+
+    Returns a ``job_id`` immediately so the client is not blocked waiting for
+    yt-dlp to finish.  The client should poll ``GET /api/jobs/<id>/status``
+    and then navigate to ``GET /api/jobs/<id>/download`` when ready.
+    """
+    _reap_old_jobs()
+
+    data = request.get_json(silent=True) or {}
+    url = unquote((data.get("url") or "").strip())
+    fmt = (data.get("format") or "720p").strip()
+
+    if not url or not _YT_URL_RE.search(url):
+        return jsonify({"error": "Invalid YouTube URL"}), 400
+
+    allowed_formats = {"360p", "480p", "720p", "1080p", "1440p", "2160p", "mp3", "flac"}
+    if fmt not in allowed_formats:
+        return jsonify({"error": "Invalid format"}), 400
+
+    job_id = _make_job_id()
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "status": "pending",
+            "error": None,
+            "tmp_dir": None,
+            "fpath": None,
+            "filename": None,
+            "mime": None,
+            "created": time.time(),
+        }
+
+    threading.Thread(
+        target=_run_youtube_download,
+        args=(job_id, url, fmt),
+        daemon=True,
+    ).start()
+
+    return jsonify({"job_id": job_id})
+
+
+def _run_youtube_download(job_id: str, url: str, fmt: str) -> None:
+    """Background worker for YouTube downloads."""
+    if fmt == "mp3":
+        yt_format = "bestaudio[ext=m4a]/bestaudio/best"
+        postprocess = [
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "--embed-metadata",
+            "--embed-thumbnail",
+        ]
+        mime = "audio/mpeg"
+        ext = "mp3"
+    elif fmt == "flac":
+        yt_format = "bestaudio[ext=m4a]/bestaudio/best"
+        postprocess = [
+            "--extract-audio",
+            "--audio-format", "flac",
+            "--audio-quality", "0",
+            "--embed-metadata",
+            "--embed-thumbnail",
+        ]
+        mime = "audio/flac"
+        ext = "flac"
+    else:
+        height = fmt.rstrip("p")
+        yt_format = (
+            f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
+            f"/bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+        )
+        postprocess = ["--merge-output-format", "mp4"]
+        mime = "video/mp4"
+        ext = "mp4"
+
+    # Resolve filename
+    try:
+        title_result = subprocess.run(
+            ["yt-dlp", "--print", "%(title)s", "--no-playlist"] + _yt_common_opts() + [url],
+            capture_output=True, text=True, timeout=15,
+        )
+        raw_title = title_result.stdout.strip() or "download"
+    except Exception:  # noqa: BLE001
+        raw_title = "download"
+
+    safe_title = _sanitize_filename(raw_title)
+    filename = f"{safe_title}.{ext}"
+
+    tmp_dir = tempfile.mkdtemp(prefix="ytdl_")
+    _set_job(job_id, tmp_dir=tmp_dir)
+
+    tmp_out = os.path.join(tmp_dir, "download.%(ext)s")
+    cmd = [
+        "yt-dlp",
+        "-f", yt_format,
+        "--no-playlist",
+        "--no-warnings",
+        "--concurrent-fragments", "4",
+        "-o", tmp_out,
+    ] + _yt_common_opts() + postprocess + [url]
+
+    logger.info("YT job %s: fmt=%s url=%s", job_id, fmt, url)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _set_job(job_id, status="error", error="Download timed out", tmp_dir=None)
+        return
+    except Exception as exc:  # noqa: BLE001
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.error("yt-dlp job %s error: %s", job_id, exc)
+        _set_job(job_id, status="error", error="Download failed", tmp_dir=None)
+        return
+
+    if proc.returncode != 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.warning("yt-dlp job %s stderr: %s", job_id, proc.stderr.decode(errors="replace"))
+        _set_job(job_id, status="error", error="Download failed", tmp_dir=None)
+        return
+
+    try:
+        files = [
+            f for f in os.listdir(tmp_dir)
+            if os.path.isfile(os.path.join(tmp_dir, f)) and f.endswith(f".{ext}")
+        ]
+    except OSError:
+        files = []
+
+    if not files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _set_job(job_id, status="error", error="Download produced no output", tmp_dir=None)
+        return
+
+    fpath = os.path.join(tmp_dir, files[0])
+    _set_job(job_id, status="ready", fpath=fpath, filename=filename, mime=mime)
+    logger.info("YT job %s ready: %s", job_id, filename)
+
+
 # ---------------------------------------------------------------------------
 # Routes — Spotify
 # ---------------------------------------------------------------------------
@@ -419,6 +631,10 @@ def spotify_info():
 @app.get("/api/spotify/download")
 @limiter.limit("5 per minute")
 def spotify_download():
+    """Legacy single-request Spotify download endpoint (kept for backward compatibility).
+
+    New callers should use POST /api/spotify/start instead.
+    """
     url = unquote((request.args.get("url") or "").strip())
     if not url or not _SP_URL_RE.match(url):
         return jsonify({"error": "Invalid Spotify URL"}), 400
@@ -436,6 +652,182 @@ def spotify_download():
         return _stream_spotify_zip(url, sp_type, fmt)
     else:
         return _stream_spotify_track(url, fmt)
+
+
+@app.post("/api/spotify/start")
+@limiter.limit("5 per minute")
+def spotify_start():
+    """Start a Spotify download in a background thread.
+
+    Returns a ``job_id`` immediately so the client is not blocked waiting for
+    spotdl to finish.  The client should poll ``GET /api/jobs/<id>/status``
+    and then navigate to ``GET /api/jobs/<id>/download`` when ready.
+    """
+    _reap_old_jobs()
+
+    data = request.get_json(silent=True) or {}
+    url = unquote((data.get("url") or "").strip())
+    if not url or not _SP_URL_RE.match(url):
+        return jsonify({"error": "Invalid Spotify URL"}), 400
+
+    fmt = (data.get("format") or "mp3").strip()
+    if fmt not in ("mp3", "flac"):
+        return jsonify({"error": "Invalid format"}), 400
+
+    sp_type = _spotify_type(url)
+
+    job_id = _make_job_id()
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "status": "pending",
+            "error": None,
+            "tmp_dir": None,
+            "fpath": None,
+            "filename": None,
+            "mime": None,
+            "created": time.time(),
+        }
+
+    threading.Thread(
+        target=_run_spotify_download,
+        args=(job_id, url, sp_type, fmt),
+        daemon=True,
+    ).start()
+
+    return jsonify({"job_id": job_id})
+
+
+# ---------------------------------------------------------------------------
+# Shared job endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/jobs/<job_id>/status")
+def job_status(job_id: str):
+    """Return the current status of a background download job."""
+    job = _get_job(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({"status": job["status"], "error": job.get("error")})
+
+
+@app.get("/api/jobs/<job_id>/download")
+def job_download(job_id: str):
+    """Stream the completed file for a finished job, then delete the job."""
+    job = _get_job(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+    if job["status"] == "error":
+        return jsonify({"error": job.get("error") or "Download failed"}), 500
+    if job["status"] != "ready":
+        return jsonify({"error": "Download is not ready yet"}), 202
+
+    fpath = job["fpath"]
+    filename = job["filename"]
+    mime = job["mime"]
+    tmp_dir = job["tmp_dir"]
+
+    if not fpath:
+        # Should not happen — indicates a logic error
+        return jsonify({"error": "Internal error: fpath missing"}), 500
+
+    # Remove job entry so it can't be downloaded twice accidentally
+    with _jobs_lock:
+        _jobs.pop(job_id, None)
+
+    file_size = os.path.getsize(fpath)
+
+    def generate():
+        try:
+            with open(fpath, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+        except GeneratorExit:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Stream error (job %s): %s", job_id, exc)
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Length": str(file_size),
+        "X-Accel-Buffering": "no",
+        "Cache-Control": "no-store",
+    }
+    return Response(
+        stream_with_context(generate()),
+        mimetype=mime,
+        headers=headers,
+    )
+
+
+def _run_spotify_download(job_id: str, url: str, sp_type: str, fmt: str) -> None:
+    """Background worker for Spotify downloads (track or collection)."""
+    is_collection = sp_type in ("album", "playlist")
+    mime = "audio/flac" if fmt == "flac" else "audio/mpeg"
+
+    if is_collection:
+        tmp_dir = tempfile.mkdtemp(prefix="spotdl_")
+    else:
+        tmp_dir = tempfile.mkdtemp(prefix="spotdl_track_")
+
+    _set_job(job_id, tmp_dir=tmp_dir)
+
+    cmd = [
+        "spotdl",
+        "download",
+        url,
+        "--output", os.path.join(tmp_dir, "{title}"),
+        "--format", fmt,
+        "--no-cache",
+    ]
+
+    logger.info("Spotify job %s: type=%s fmt=%s url=%s", job_id, sp_type, fmt, url)
+
+    timeout = 600 if is_collection else 300
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _set_job(job_id, status="error", error="Download timed out", tmp_dir=None)
+        return
+
+    if proc.returncode != 0:
+        logger.warning("spotdl job %s stderr: %s", job_id, proc.stderr.decode(errors="replace"))
+        if not is_collection:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            _set_job(job_id, status="error", error="Track download failed", tmp_dir=None)
+            return
+        # For collections spotdl may still have partial results — check below.
+
+    try:
+        audio_files = [f for f in os.listdir(tmp_dir) if f.endswith(f".{fmt}")]
+    except OSError:
+        audio_files = []
+
+    if not audio_files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        _set_job(job_id, status="error", error="No tracks were downloaded", tmp_dir=None)
+        return
+
+    if is_collection:
+        # Build a real ZIP file so we have a known Content-Length
+        zip_name = f"{sp_type}_download.zip"
+        zip_path = os.path.join(tmp_dir, zip_name)
+        with _zipfile.ZipFile(zip_path, "w", _zipfile.ZIP_DEFLATED) as zf:
+            for fname in audio_files:
+                zf.write(os.path.join(tmp_dir, fname), arcname=fname)
+        _set_job(job_id, status="ready", fpath=zip_path, filename=zip_name, mime="application/zip")
+        logger.info("Spotify job %s ready (ZIP): %s", job_id, zip_name)
+    else:
+        fpath = os.path.join(tmp_dir, audio_files[0])
+        filename = _sanitize_filename(audio_files[0])
+        _set_job(job_id, status="ready", fpath=fpath, filename=filename, mime=mime)
+        logger.info("Spotify job %s ready: %s", job_id, filename)
 
 
 def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
