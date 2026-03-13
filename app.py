@@ -82,6 +82,27 @@ _SP_URL_RE = re.compile(
     r"https?://open\.spotify\.com/(track|album|playlist)/[\w]+"
 )
 
+# Optional path to a Netscape-format cookies file for yt-dlp.
+# Required for age-restricted content and 1080p+ on some YouTube videos.
+_YT_COOKIE_FILE = os.environ.get("YT_COOKIE_FILE", "")
+
+
+def _yt_common_opts() -> list:
+    """Return extra yt-dlp options applied to every YouTube command.
+
+    * ``--extractor-args youtube:player_client=all`` – instructs yt-dlp to
+      probe every known YouTube player client (web, Android, iOS, TV …).
+      Without this, YouTube's bot-detection often restricts the visible
+      format list to a single 360p combined stream.
+    * ``--cookies <path>`` – when *YT_COOKIE_FILE* is set and the file
+      exists, pass it to yt-dlp so that age-restricted / member-only
+      content and high-resolution streams (1080p+) are accessible.
+    """
+    opts = ["--extractor-args", "youtube:player_client=all"]
+    if _YT_COOKIE_FILE and os.path.isfile(_YT_COOKIE_FILE):
+        opts += ["--cookies", _YT_COOKIE_FILE]
+    return opts
+
 
 def _sanitize_filename(name: str) -> str:
     """Remove characters that are unsafe in Content-Disposition filenames."""
@@ -95,8 +116,7 @@ def _run_yt_dlp_info(url: str) -> dict:
         "--dump-json",
         "--no-playlist",
         "--no-warnings",
-        url,
-    ]
+    ] + _yt_common_opts() + [url]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "yt-dlp info failed")
@@ -235,7 +255,7 @@ def youtube_download():
     # Resolve filename via yt-dlp --print
     try:
         title_result = subprocess.run(
-            ["yt-dlp", "--print", "%(title)s", "--no-playlist", url],
+            ["yt-dlp", "--print", "%(title)s", "--no-playlist"] + _yt_common_opts() + [url],
             capture_output=True, text=True, timeout=15,
         )
         raw_title = title_result.stdout.strip() or "download"
@@ -259,7 +279,7 @@ def youtube_download():
         "--no-warnings",
         "--concurrent-fragments", "4",
         "-o", tmp_out,
-    ] + postprocess + [url]
+    ] + _yt_common_opts() + postprocess + [url]
 
     logger.info("YT download: fmt=%s url=%s", fmt, url)
 
