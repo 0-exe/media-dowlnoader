@@ -17,6 +17,15 @@
       </div>
       <span class="version-badge">v{{ version }}</span>
     </div>
+    <div class="header-settings">
+      <label class="toggle-label" for="direct-stream-toggle" title="When enabled, the file is streamed directly from the server in a single request instead of using a background job.">
+        <span class="toggle-text">Direct stream</span>
+        <span class="toggle-switch">
+          <input type="checkbox" id="direct-stream-toggle" />
+          <span class="toggle-slider"></span>
+        </span>
+      </label>
+    </div>
   </header>
 
   <!-- ── Main ───────────────────────────────────────────── -->
