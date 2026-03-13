@@ -422,8 +422,11 @@ Open **http://localhost:8080** in your browser.
 |----------|-------|
 | `/api/youtube/info` | 30 requests / minute |
 | `/api/youtube/download` | 10 requests / minute |
+| `/api/youtube/start` | 10 requests / minute |
 | `/api/spotify/info` | 20 requests / minute |
 | `/api/spotify/download` | 5 requests / minute |
+| `/api/spotify/start` | 5 requests / minute |
+| `/api/jobs/<id>/status` | 120 requests / minute |
 | All other endpoints | 200 / day, 50 / hour |
 
 ### Example — YouTube info
