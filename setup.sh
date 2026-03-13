@@ -53,7 +53,12 @@ log "Installing/updating spotdl…"
 "$VENV_DIR/bin/pip" install spotdl -q
 ok "spotdl installed."
 
-# ── 6. systemd service ───────────────────────────────────────────────
+# ── 6. Install the "update" command ─────────────────────────────────
+log "Installing 'update' command…"
+install -m 755 "$APP_DIR/update.sh" /usr/local/bin/update
+ok "'update' command installed."
+
+# ── 7. systemd service ───────────────────────────────────────────────
 log "Creating systemd service ($SERVICE_NAME)…"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]

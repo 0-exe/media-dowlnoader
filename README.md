@@ -203,17 +203,11 @@ journalctl -u media-downloader -n 50
 
 **5. Update the application**
 
-```bash
-# Inside the container shell:
-git -C /opt/media-downloader pull --ff-only
-systemctl restart media-downloader
-```
-
-To also update `yt-dlp` and `spotdl`, re-run the full setup script:
+The installer provides a single `update` command that pulls the latest code, updates all dependencies (yt-dlp, spotdl, Python packages), and restarts the service:
 
 ```bash
 # Inside the container shell:
-curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.sh | bash
+update
 ```
 
 ---
@@ -463,6 +457,7 @@ media-dowlnoader/
 ├── requirements.txt    # Python dependencies
 ├── install.sh          # Proxmox LXC one-liner (run on the Proxmox node)
 ├── setup.sh            # In-container setup (installs deps + systemd)
+├── update.sh           # In-container update (pulls code, updates deps, restarts service)
 ├── docs/
 │   └── systemd-override.example.conf   # Example systemd drop-in for env vars
 ├── static/
