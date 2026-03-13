@@ -702,6 +702,7 @@ def spotify_start():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/jobs/<job_id>/status")
+@limiter.limit("120 per minute")
 def job_status(job_id: str):
     """Return the current status of a background download job."""
     job = _get_job(job_id)
