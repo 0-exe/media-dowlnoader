@@ -29,61 +29,36 @@
 
 ---
 
-## ⚠️ This Is a Python Project — npm Is Not Needed
+## 📋 Requirements
 
-**Media Downloader is a Python/Flask application.** It does **not** use Node.js, npm, or any JavaScript build step. If you clone the repo and run `npm install` or `npm start` you will get an error because there is no `package.json`.
+### System dependencies
 
-Dependency management is handled entirely with **pip**:
+| Dependency | Purpose | Install |
+|------------|---------|---------|
+| **Python 3.10+** | Runtime | [python.org](https://python.org) |
+| **ffmpeg** | Audio/video conversion used by yt-dlp and spotdl | see below |
+| **git** | Cloning the repository | [git-scm.com](https://git-scm.com) |
 
-```bash
-pip install -r requirements.txt
-```
+**Install ffmpeg:**
 
-The server is started with **Python**:
+| OS | Command |
+|----|---------|
+| Windows | `winget install ffmpeg` or `choco install ffmpeg` |
+| macOS | `brew install ffmpeg` |
+| Debian/Ubuntu | `sudo apt install ffmpeg` |
+| Fedora/RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
 
-```bash
-python app.py
-```
+### Python dependencies
 
-See the [Local Demo](#-local-demo-website-ui-only) or [Manual Install](#-manual-install) sections below for the full setup steps.
-
----
-
-## 💻 Local Demo (Website UI Only)
-
-You can run the web interface locally to preview the UI **without** installing `yt-dlp` or `spotdl`. Fetch/Download actions will return errors, but the full UI is visible.
-
-### Prerequisites
-
-- Python 3.10+
-- Git
-
-### Steps
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/0-exe/media-dowlnoader.git
-cd media-dowlnoader
-
-# 2. Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 3. Install only the web-server dependencies (skip yt-dlp / spotdl)
-pip install Flask==3.1.3 Flask-Limiter==4.1.1 Werkzeug==3.1.6 \
-            zipstream-new==1.1.8 requests==2.32.5
-
-# 4. Start the server
-python app.py
-```
-
-Open **http://localhost:8080** in your browser. You will see the full dark-themed UI with the YouTube and Spotify tabs. Clicking *Fetch* or *Download* without the backend tools installed will surface an error toast, which is expected.
-
-> **Tip:** To enable actual downloads, install the full dependencies as described in the [Manual Install](#-manual-install) section.
+Installed automatically via `pip install -r requirements.txt`.
 
 ---
 
 ## 🐳 Docker
+
+<details>
+<summary>Click to expand Docker instructions</summary>
 
 ```bash
 # Build
@@ -95,8 +70,6 @@ docker run -d \
   -p 8080:8080 \
   -e SECRET_KEY="$(openssl rand -hex 32)" \
   media-downloader
-
-# Or with Docker Compose (see below)
 ```
 
 ### Docker Compose
@@ -120,9 +93,14 @@ Then run:
 docker compose up -d
 ```
 
+</details>
+
 ---
 
 ## 🚀 Proxmox LXC Install
+
+<details>
+<summary>Click to expand Proxmox LXC instructions</summary>
 
 ### Before You Run
 
@@ -267,37 +245,173 @@ pct enter <CTID>
 pct exec <CTID> -- systemctl restart media-downloader
 ```
 
+</details>
+
 ---
 
 ## 🛠 Manual Install
 
-```bash
-# Prerequisites: Python 3.10+, ffmpeg, yt-dlp, spotdl
+<details>
+<summary>Windows</summary>
+
+```powershell
+# 1. Install system dependencies (run in an elevated PowerShell or use winget/choco)
+winget install Python.Python.3.12
+winget install ffmpeg
+winget install Git.Git
+
+# 2. Restart your terminal so PATH changes take effect, then clone the repo
 git clone https://github.com/0-exe/media-dowlnoader.git
 cd media-dowlnoader
-python3 -m venv .venv && source .venv/bin/activate
+
+# 3. Create and activate a virtual environment
+python -m venv .venv
+.venv\Scripts\activate
+
+# 4. Install Python dependencies
 pip install -r requirements.txt
-python app.py          # http://0.0.0.0:8080
+
+# 5. Start the server
+python app.py
 ```
 
-Or use the setup script directly inside any Debian/Ubuntu machine:
+Open **http://localhost:8080** in your browser.
+
+</details>
+
+<details>
+<summary>macOS</summary>
+
+```bash
+# 1. Install Homebrew (if not already installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Install system dependencies
+brew install python ffmpeg git
+
+# 3. Clone the repository
+git clone https://github.com/0-exe/media-dowlnoader.git
+cd media-dowlnoader
+
+# 4. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 5. Install Python dependencies
+pip install -r requirements.txt
+
+# 6. Start the server
+python app.py
+```
+
+Open **http://localhost:8080** in your browser.
+
+</details>
+
+<details>
+<summary>Debian / Ubuntu</summary>
+
+```bash
+# 1. Install system dependencies
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv ffmpeg git
+
+# 2. Clone the repository
+git clone https://github.com/0-exe/media-dowlnoader.git
+cd media-dowlnoader
+
+# 3. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 4. Install Python dependencies
+pip install -r requirements.txt
+
+# 5. Start the server
+python3 app.py
+```
+
+Open **http://localhost:8080** in your browser.
+
+Or use the automated setup script on any Debian/Ubuntu machine:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0-exe/media-dowlnoader/main/setup.sh | sudo bash
 ```
 
+</details>
+
+<details>
+<summary>Fedora / RHEL / Rocky Linux</summary>
+
+```bash
+# 1. Install system dependencies
+sudo dnf install -y python3 python3-pip ffmpeg git
+
+# 2. Clone the repository
+git clone https://github.com/0-exe/media-dowlnoader.git
+cd media-dowlnoader
+
+# 3. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 4. Install Python dependencies
+pip install -r requirements.txt
+
+# 5. Start the server
+python3 app.py
+```
+
+Open **http://localhost:8080** in your browser.
+
+</details>
+
+<details>
+<summary>Arch Linux</summary>
+
+```bash
+# 1. Install system dependencies
+sudo pacman -S python python-pip ffmpeg git
+
+# 2. Clone the repository
+git clone https://github.com/0-exe/media-dowlnoader.git
+cd media-dowlnoader
+
+# 3. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 4. Install Python dependencies
+pip install -r requirements.txt
+
+# 5. Start the server
+python3 app.py
+```
+
+Open **http://localhost:8080** in your browser.
+
+</details>
+
 ---
 
 ## ⚙️ Environment Variables
+
+<details>
+<summary>Click to expand</summary>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SECRET_KEY` | *(random)* | Flask secret key. **Set this in production** — a random key is generated on startup if not provided, but sessions will not survive restarts. |
 | `APP_PORT` | `8080` | Port the web server listens on. |
 
+</details>
+
 ---
 
 ## 📡 API Reference
+
+<details>
+<summary>Click to expand</summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -333,9 +447,14 @@ curl -s http://localhost:8080/api/health | jq .
 # {"status": "ok", "version": "2.1.0"}
 ```
 
+</details>
+
 ---
 
 ## 🗂 Project Structure
+
+<details>
+<summary>Click to expand</summary>
 
 ```
 media-dowlnoader/
@@ -355,22 +474,29 @@ media-dowlnoader/
 └── LICENSE
 ```
 
+</details>
+
 ---
 
 ## 🔧 Troubleshooting
 
+<details>
+<summary>Click to expand</summary>
+
 | Problem | Fix |
 |---------|-----|
-| `npm install` / `npm start` gives an error | This is a Python project — there is no `package.json`. Use `pip install -r requirements.txt` and `python app.py` instead (see [setup note](#️-this-is-a-python-project--npm-is-not-needed)) |
-| `yt-dlp` returns errors | Enter the container (`pct enter <CTID>`) and run `yt-dlp -U` to update |
+| `ffmpeg` not found | Install ffmpeg for your OS — see [Requirements](#-requirements) above |
+| `yt-dlp` returns errors | Run `yt-dlp -U` to update to the latest version |
 | Spotify 401 / auth errors | `spotdl` may need a Spotify developer token — see [spotdl docs](https://spotdl.readthedocs.io/) |
 | Container has no internet | Check `CT_BRIDGE` in `install.sh` matches your Proxmox bridge (`ip link` on the node) |
 | Can't reach the UI | Make sure the container is running (`pct status <CTID>`) and confirm the IP with `pct exec <CTID> -- hostname -I` |
-| Port 8080 already in use | Enter the container and set `APP_PORT` via `systemctl edit media-downloader` (see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf)) |
-| Service won't start | Enter the container and run `journalctl -u media-downloader -n 50` |
-| Sessions lost after restart | Enter the container and set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [step 3](#3-optional-set-a-persistent-secret-key)) |
+| Port 8080 already in use | Set `APP_PORT` via `systemctl edit media-downloader` (see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf)) |
+| Service won't start | Run `journalctl -u media-downloader -n 50` |
+| Sessions lost after restart | Set a persistent `SECRET_KEY` via `systemctl edit media-downloader` (see [Proxmox step 3](#3-optional-set-a-persistent-secret-key)) |
 | SECRET_KEY warning in logs | Set the `SECRET_KEY` environment variable — see [`docs/systemd-override.example.conf`](docs/systemd-override.example.conf) |
 | Wrong storage pool error | Change `CT_STORAGE` in `install.sh` to match your pool (`pvesm status` lists them) |
+
+</details>
 
 ---
 
