@@ -1,3 +1,11 @@
+/* ── Direct-stream toggle (persisted in localStorage) ────────────── */
+const directStreamToggle = document.getElementById('direct-stream-toggle');
+directStreamToggle.checked = localStorage.getItem('directStream') === 'true';
+directStreamToggle.addEventListener('change', () => {
+  localStorage.setItem('directStream', directStreamToggle.checked);
+});
+function isDirectStream() { return directStreamToggle.checked; }
+
 /* ── Tab switching ─────────────────────────────────────────────────── */
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -123,20 +131,28 @@ ytFetch.addEventListener('click', async () => {
 ytDownload.addEventListener('click', () => {
   if (!ytCurrentUrl) return;
   const fmt = ytFormat.value;
+  const onDone = () => {
+    ytDownload.disabled = false;
+    ytProgress.classList.add('hidden');
+  };
 
   ytDownload.disabled = true;
   ytProgress.classList.remove('hidden');
   const label = document.querySelector('#yt-progress .progress-label');
 
-  startJobDownload(
-    '/api/youtube/start',
-    { url: ytCurrentUrl, format: fmt },
-    label,
-    () => {
-      ytDownload.disabled = false;
-      ytProgress.classList.add('hidden');
-    },
-  );
+  if (isDirectStream()) {
+    label.textContent = 'Downloading (direct stream)…';
+    const params = new URLSearchParams({ url: ytCurrentUrl, format: fmt });
+    window.location.href = `/api/youtube/download?${params}`;
+    setTimeout(onDone, 3000);
+  } else {
+    startJobDownload(
+      '/api/youtube/start',
+      { url: ytCurrentUrl, format: fmt },
+      label,
+      onDone,
+    );
+  }
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -193,21 +209,29 @@ spFetch.addEventListener('click', async () => {
 spDownload.addEventListener('click', () => {
   if (!spCurrentUrl) return;
   const fmt = spFormat.value;
+  const onDone = () => {
+    spDownload.disabled = false;
+    spProgress.classList.add('hidden');
+  };
 
   spDownload.disabled = true;
   spProgress.classList.remove('hidden');
   const label = document.querySelector('#sp-progress .progress-label');
-  label.textContent = 'Preparing download… (this may take a while for playlists)';
 
-  startJobDownload(
-    '/api/spotify/start',
-    { url: spCurrentUrl, format: fmt },
-    label,
-    () => {
-      spDownload.disabled = false;
-      spProgress.classList.add('hidden');
-    },
-  );
+  if (isDirectStream()) {
+    label.textContent = 'Downloading (direct stream)…';
+    const params = new URLSearchParams({ url: spCurrentUrl, format: fmt });
+    window.location.href = `/api/spotify/download?${params}`;
+    setTimeout(onDone, 3000);
+  } else {
+    label.textContent = 'Preparing download… (this may take a while for playlists)';
+    startJobDownload(
+      '/api/spotify/start',
+      { url: spCurrentUrl, format: fmt },
+      label,
+      onDone,
+    );
+  }
 });
 
 /* ── Download helpers ──────────────────────────────────────────────── */
