@@ -128,12 +128,9 @@ ytDownload.addEventListener('click', () => {
   ytDownload.disabled = true;
   ytProgress.classList.remove('hidden');
 
-  // Use an <a> + iframe trick: iframe loads the download URL which triggers
-  // the browser's native "Save file" dialog without leaving the page.
   triggerDownload(downloadUrl, () => {
     ytDownload.disabled = false;
     ytProgress.classList.add('hidden');
-    showToast('Download started!', 'success');
   });
 });
 
@@ -201,35 +198,55 @@ spDownload.addEventListener('click', () => {
   triggerDownload(downloadUrl, () => {
     spDownload.disabled = false;
     spProgress.classList.add('hidden');
-    showToast('Download started!', 'success');
   });
 });
 
 /* ── Download trigger helper ───────────────────────────────────────── */
 /**
- * Trigger a file download by injecting a hidden <iframe>.
- * The iframe's load event fires once the response headers arrive,
- * which is good enough to re-enable the UI.
- * A fallback timer re-enables the UI after 90 s in case the load
- * event never fires (some browsers suppress it for file downloads).
+ * Trigger a file download using fetch() + Blob.
+ * This approach reliably delivers files to the browser across all modern
+ * browsers, unlike the hidden-iframe trick which many browsers silently
+ * block or ignore for attachment responses.
+ *
+ * @param {string} url       Download endpoint URL
+ * @param {Function} onDone  Called once the download completes or fails
  */
-function triggerDownload(url, onStart) {
-  const iframe = document.createElement('iframe');
-  iframe.style.display = 'none';
-  iframe.src = url;
+async function triggerDownload(url, onDone) {
+  try {
+    const res = await fetch(url);
 
-  // Fallback: re-enable UI after 90 s if load event doesn't fire
-  const fallback = setTimeout(() => {
-    onStart && onStart();
-    setTimeout(() => iframe.remove(), 60000);
-  }, 90000);
+    if (!res.ok) {
+      // Server returned an error — try to parse the JSON message
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
 
-  iframe.addEventListener('load', () => {
-    clearTimeout(fallback);
-    onStart && onStart();
-    // Keep the iframe alive briefly so the browser can stream the file,
-    // then remove it.
-    setTimeout(() => iframe.remove(), 60000);
-  });
-  document.body.appendChild(iframe);
+    // Extract filename from Content-Disposition header
+    const disposition = res.headers.get('Content-Disposition');
+    let filename = 'download';
+    if (disposition) {
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      if (match) filename = match[1];
+    }
+
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    // Revoke the blob URL after a short delay so the browser can start
+    // the save-file dialog before the URL is invalidated.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+
+    onDone && onDone();
+  } catch (err) {
+    showToast(err.message || 'Download failed', 'error');
+    onDone && onDone();
+  }
 }

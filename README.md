@@ -21,6 +21,14 @@
 
 ---
 
+## 📸 Screenshots
+
+| YouTube tab | Spotify tab |
+|:-----------:|:-----------:|
+| ![YouTube tab](docs/screenshot-youtube.png) | ![Spotify tab](docs/screenshot-spotify.png) |
+
+---
+
 ## ⚠️ This Is a Python Project — npm Is Not Needed
 
 **Media Downloader is a Python/Flask application.** It does **not** use Node.js, npm, or any JavaScript build step. If you clone the repo and run `npm install` or `npm start` you will get an error because there is no `package.json`.
