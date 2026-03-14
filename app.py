@@ -593,7 +593,7 @@ def _spotify_type(url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _fetch_spotify_metadata(url: str) -> list:
+def _fetch_spotify_metadata(url: str, timeout: int = 120) -> list:
     """Use spotdl save to retrieve basic track metadata and return a list of track dicts."""
     cmd = [
         "spotdl",
@@ -602,7 +602,7 @@ def _fetch_spotify_metadata(url: str) -> list:
         "--save-file", "-",  # "-" tells spotdl to print JSON to stdout
         "--no-cache",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=_spotdl_env())
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_spotdl_env())
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "spotdl metadata failed")
     # spotdl save --save-file - prints a JSON array to stdout
@@ -657,6 +657,87 @@ def spotify_info():
         ],
         "url": url,
     })
+
+
+def _run_spotify_info(job_id: str, url: str) -> None:
+    """Background worker that fetches Spotify metadata and stores the result in the job."""
+    sp_type = _spotify_type(url)
+    try:
+        tracks = _fetch_spotify_metadata(url, timeout=120)
+    except subprocess.TimeoutExpired:
+        _set_job(job_id, status="error", error="Request timed out")
+        return
+    except ValueError as exc:
+        _set_job(job_id, status="error", error=str(exc))
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.error("spotdl metadata error (job %s): %s", job_id, exc)
+        _set_job(job_id, status="error", error="Failed to fetch Spotify metadata")
+        return
+
+    if not tracks:
+        _set_job(job_id, status="error", error="No tracks found")
+        return
+
+    first = tracks[0]
+    result = {
+        "type": sp_type,
+        "name": first.get("name", "Unknown"),
+        "artist": ", ".join(first.get("artists", [])) if first.get("artists") else first.get("artist", ""),
+        "album": first.get("album_name", first.get("album", "")),
+        "thumbnail": first.get("cover_url", first.get("album_cover", "")),
+        "track_count": len(tracks),
+        "tracks": [
+            {
+                "name": t.get("name", ""),
+                "artist": ", ".join(t.get("artists", [])) if t.get("artists") else t.get("artist", ""),
+            }
+            for t in tracks[:5]
+        ],
+        "url": url,
+    }
+    _set_job(job_id, status="ready", result=result)
+    logger.info("Spotify info job %s ready: %s", job_id, result.get("name"))
+
+
+@app.post("/api/spotify/info/start")
+@limiter.limit("20 per minute")
+def spotify_info_start():
+    """Start a Spotify info fetch in a background thread.
+
+    Returns a ``job_id`` immediately so the client is not blocked waiting for
+    spotdl to finish.  The client should poll ``GET /api/jobs/<id>/status``
+    until status is ``ready`` (result is in ``statusData.result``) or ``error``.
+    """
+    _reap_old_jobs()
+
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "Missing url"}), 400
+    if not _SP_URL_RE.match(url):
+        return jsonify({"error": "Invalid Spotify URL"}), 400
+
+    job_id = _make_job_id()
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "status": "pending",
+            "error": None,
+            "tmp_dir": None,
+            "fpath": None,
+            "filename": None,
+            "mime": None,
+            "result": None,
+            "created": time.time(),
+        }
+
+    threading.Thread(
+        target=_run_spotify_info,
+        args=(job_id, url),
+        daemon=True,
+    ).start()
+
+    return jsonify({"job_id": job_id})
 
 
 @app.get("/api/spotify/download")
@@ -739,7 +820,10 @@ def job_status(job_id: str):
     job = _get_job(job_id)
     if job is None:
         return jsonify({"error": "Job not found"}), 404
-    return jsonify({"status": job["status"], "error": job.get("error")})
+    resp = {"status": job["status"], "error": job.get("error")}
+    if job.get("result") is not None:
+        resp["result"] = job["result"]
+    return jsonify(resp)
 
 
 @app.get("/api/jobs/<job_id>/download")
