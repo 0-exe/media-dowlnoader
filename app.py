@@ -314,7 +314,10 @@ def youtube_download():
             f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
             f"/bestvideo[height<={height}]+bestaudio/best[height<={height}]"
         )
-        postprocess = ["--merge-output-format", "mp4"]
+        postprocess = [
+            "--merge-output-format", "mp4",
+            "-S", "vcodec:h264,acodec:aac",
+        ]
         mime = "video/mp4"
         ext = "mp4"
 
@@ -482,7 +485,10 @@ def _run_youtube_download(job_id: str, url: str, fmt: str) -> None:
             f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
             f"/bestvideo[height<={height}]+bestaudio/best[height<={height}]"
         )
-        postprocess = ["--merge-output-format", "mp4"]
+        postprocess = [
+            "--merge-output-format", "mp4",
+            "-S", "vcodec:h264,acodec:aac",
+        ]
         mime = "video/mp4"
         ext = "mp4"
 
