@@ -85,6 +85,25 @@ limiter = Limiter(
 VERSION = "2.2.0"
 
 # ---------------------------------------------------------------------------
+# spotdl environment helper
+# ---------------------------------------------------------------------------
+
+def _spotdl_env() -> dict:
+    """Return an environment for spotdl subprocesses with a writable HOME.
+
+    spotdl creates config / cache directories under ``$HOME`` when it starts
+    up.  When the app runs as a system user whose HOME is not writable (e.g.
+    ``www-data`` → ``/var/www``), spotdl fails with *PermissionError*.
+    We point HOME at a per-user temp directory so the subprocess can always
+    write its config regardless of the deployment method.
+    """
+    env = os.environ.copy()
+    spotdl_home = os.path.join(tempfile.gettempdir(), f"spotdl_home_{os.getuid()}")
+    os.makedirs(spotdl_home, exist_ok=True)
+    env["HOME"] = spotdl_home
+    return env
+
+# ---------------------------------------------------------------------------
 # Background job management
 # ---------------------------------------------------------------------------
 
@@ -579,7 +598,7 @@ def _fetch_spotify_metadata(url: str) -> list:
         "--save-file", "/dev/stdout",
         "--no-cache",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=_spotdl_env())
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "spotdl metadata failed")
     # spotdl save emits JSON lines
@@ -797,7 +816,7 @@ def _run_spotify_download(job_id: str, url: str, sp_type: str, fmt: str) -> None
 
     timeout = 600 if is_collection else 300
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout, env=_spotdl_env())
     except subprocess.TimeoutExpired:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         _set_job(job_id, status="error", error="Download timed out", tmp_dir=None)
@@ -852,7 +871,7 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
     ]
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=300)
+        proc = subprocess.run(cmd, capture_output=True, timeout=300, env=_spotdl_env())
     except subprocess.TimeoutExpired:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return jsonify({"error": "Download timed out"}), 504
@@ -921,6 +940,7 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
             cmd,
             capture_output=True,
             timeout=600,
+            env=_spotdl_env(),
         )
     except subprocess.TimeoutExpired:
         shutil.rmtree(tmp_dir, ignore_errors=True)
