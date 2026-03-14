@@ -82,7 +82,11 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
+# Versioning policy — bump the version for EVERY code change (Semantic Versioning):
+#   PATCH (x.x.N) — bug fixes, small tweaks, timeout/config adjustments
+#   MINOR (x.N.0) — new features, new endpoints, visible UI additions (reset PATCH to 0)
+#   MAJOR (N.0.0) — breaking changes, API contract changes (reset MINOR+PATCH to 0)
 # When bumping the version, update ALL of the following in one commit:
 #   1. VERSION constant here (app.py)
 #   2. The health-check example output in README.md (search for `"version":`)
@@ -593,7 +597,17 @@ def _spotify_type(url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _fetch_spotify_metadata(url: str, timeout: int = 120) -> list:
+def _extract_spotdl_error(stderr: str) -> str:
+    """Extract a short, human-readable error message from spotdl stderr output."""
+    if not stderr:
+        return "Track download failed"
+    # Return the last non-empty line as the most relevant message, capped at 200 chars
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    msg = lines[-1] if lines else stderr
+    return msg[:200] if len(msg) > 200 else msg
+
+
+def _fetch_spotify_metadata(url: str, timeout: int = 300) -> list:
     """Use spotdl save to retrieve basic track metadata and return a list of track dicts."""
     cmd = [
         "spotdl",
@@ -604,7 +618,9 @@ def _fetch_spotify_metadata(url: str, timeout: int = 120) -> list:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_spotdl_env())
     if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or "spotdl metadata failed")
+        err_msg = result.stderr.strip() or "spotdl metadata failed"
+        logger.warning("spotdl metadata stderr: %s", err_msg)
+        raise ValueError(err_msg)
     # spotdl save --save-file - prints a JSON array to stdout
     try:
         tracks = json.loads(result.stdout)
@@ -663,7 +679,7 @@ def _run_spotify_info(job_id: str, url: str) -> None:
     """Background worker that fetches Spotify metadata and stores the result in the job."""
     sp_type = _spotify_type(url)
     try:
-        tracks = _fetch_spotify_metadata(url, timeout=120)
+        tracks = _fetch_spotify_metadata(url, timeout=300)
     except subprocess.TimeoutExpired:
         _set_job(job_id, status="error", error="Request timed out")
         return
@@ -900,11 +916,12 @@ def _run_spotify_download(job_id: str, url: str, sp_type: str, fmt: str) -> None
         "--output", os.path.join(tmp_dir, "{title}"),
         "--format", fmt,
         "--no-cache",
+        "--audio-providers", "youtube-music", "youtube",
     ]
 
     logger.info("Spotify job %s: type=%s fmt=%s url=%s", job_id, sp_type, fmt, url)
 
-    timeout = 600 if is_collection else 300
+    timeout = 600
     try:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout, env=_spotdl_env())
     except subprocess.TimeoutExpired:
@@ -912,13 +929,17 @@ def _run_spotify_download(job_id: str, url: str, sp_type: str, fmt: str) -> None
         _set_job(job_id, status="error", error="Download timed out", tmp_dir=None)
         return
 
+    stderr_text = proc.stderr.decode(errors="replace").strip()
     if proc.returncode != 0:
-        logger.warning("spotdl job %s stderr: %s", job_id, proc.stderr.decode(errors="replace"))
+        logger.warning("spotdl job %s stderr: %s", job_id, stderr_text)
         if not is_collection:
+            err_detail = _extract_spotdl_error(stderr_text)
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            _set_job(job_id, status="error", error="Track download failed", tmp_dir=None)
+            _set_job(job_id, status="error", error=err_detail, tmp_dir=None)
             return
         # For collections spotdl may still have partial results — check below.
+    elif stderr_text:
+        logger.info("spotdl job %s stderr: %s", job_id, stderr_text)
 
     try:
         audio_files = [f for f in os.listdir(tmp_dir) if f.endswith(f".{fmt}")]
@@ -958,18 +979,21 @@ def _stream_spotify_track(url: str, fmt: str = "mp3") -> Response:
         "--output", os.path.join(tmp_dir, "{title}"),
         "--format", fmt,
         "--no-cache",
+        "--audio-providers", "youtube-music", "youtube",
     ]
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=300, env=_spotdl_env())
+        proc = subprocess.run(cmd, capture_output=True, timeout=600, env=_spotdl_env())
     except subprocess.TimeoutExpired:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return jsonify({"error": "Download timed out"}), 504
 
+    stderr_text = proc.stderr.decode(errors="replace").strip()
     if proc.returncode != 0:
-        logger.warning("spotdl track stderr: %s", proc.stderr.decode(errors="replace"))
+        logger.warning("spotdl track stderr: %s", stderr_text)
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        return jsonify({"error": "Track download failed"}), 500
+        err_detail = _extract_spotdl_error(stderr_text)
+        return jsonify({"error": err_detail}), 500
 
     try:
         files = [f for f in os.listdir(tmp_dir) if f.endswith(f".{fmt}")]
@@ -1022,9 +1046,8 @@ def _stream_spotify_zip(url: str, sp_type: str, fmt: str = "mp3") -> Response:
         "--output", os.path.join(tmp_dir, "{title}"),
         "--format", fmt,
         "--no-cache",
+        "--audio-providers", "youtube-music", "youtube",
     ]
-
-    # Run spotdl synchronously (collection may take a while)
     try:
         proc = subprocess.run(
             cmd,

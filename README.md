@@ -441,7 +441,7 @@ curl -s -X POST http://localhost:8080/api/youtube/info \
 
 ```bash
 curl -s http://localhost:8080/api/health | jq .
-# {"status": "ok", "version": "2.2.1"}
+# {"status": "ok", "version": "2.2.2"}
 ```
 
 </details>
@@ -473,6 +473,23 @@ media-dowlnoader/
 ```
 
 </details>
+
+---
+
+## 🔢 Versioning
+
+This project uses **Semantic Versioning** (`MAJOR.MINOR.PATCH`, e.g. `2.2.1`).  
+**Every code change must bump the version** before merging.
+
+| Change type | Which number to increment | Example |
+|-------------|--------------------------|---------|
+| **Bug fix / small patch** — fixing a broken feature, correcting a typo in logic, adjusting a timeout, etc. | **PATCH** — the number after the second dot | `2.2.1` → `2.2.2` |
+| **New feature / minor improvement** — adding a new endpoint, new format support, visible UI addition, etc. | **MINOR** — the number after the first dot; reset PATCH to 0 | `2.2.2` → `2.3.0` |
+| **Breaking change / major rewrite** — removing an endpoint, changing the API contract, incompatible config changes, etc. | **MAJOR** — the number before the first dot; reset MINOR and PATCH to 0 | `2.3.0` → `3.0.0` |
+
+When bumping the version, update **all** of the following in one commit:
+1. `VERSION` constant in `app.py`
+2. The health-check example output in this README (search for `"version":`)
 
 ---
 
