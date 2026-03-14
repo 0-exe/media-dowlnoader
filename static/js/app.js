@@ -180,29 +180,79 @@ spFetch.addEventListener('click', async () => {
   spFetch.disabled = true;
   spFetch.textContent = 'Fetching…';
   spCard.classList.add('hidden');
-  spProgress.classList.add('hidden');
+  spProgress.classList.remove('hidden');
+  const label = document.querySelector('#sp-progress .progress-label');
+  label.textContent = 'Fetching track info…';
 
   try {
-    const info = await apiPost('/api/spotify/info', { url });
-    spCurrentUrl = info.url;
+    const startRes = await fetch('/api/spotify/info/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const startData = await startRes.json().catch(() => ({}));
+    if (!startRes.ok) throw new Error(startData.error || `HTTP ${startRes.status}`);
 
-    spThumb.src = info.thumbnail || '';
-    spThumb.onerror = () => { spThumb.src = ''; };
-    spTitle.textContent = info.name;
-    spMeta.textContent = `${info.artist || ''}  •  ${info.album || ''}`;
+    const jobId = startData.job_id;
+    if (!jobId) throw new Error('No job ID returned by server');
 
-    if (info.type !== 'track') {
-      spTracks.textContent = `${info.track_count} track${info.track_count !== 1 ? 's' : ''} — downloads as ZIP`;
-    } else {
-      spTracks.textContent = '';
+    // Poll /api/jobs/<id>/status until ready or error
+    const POLL_INTERVAL = 2000;
+    const MAX_WAIT_MS = 2 * 60 * 1000; // 2 minutes
+    const deadline = Date.now() + MAX_WAIT_MS;
+    let dots = 0;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+      const statusRes = await fetch(`/api/jobs/${jobId}/status`);
+      const statusData = await statusRes.json().catch(() => ({}));
+      if (!statusRes.ok) throw new Error(statusData.error || `HTTP ${statusRes.status}`);
+
+      if (statusData.status === 'error') {
+        throw new Error(statusData.error || 'Failed to fetch Spotify info');
+      }
+
+      if (statusData.status === 'ready') {
+        const info = statusData.result;
+        if (!info) throw new Error('No info returned by server');
+        spCurrentUrl = info.url;
+
+        spThumb.src = info.thumbnail || '';
+        spThumb.onerror = () => { spThumb.src = ''; };
+        spTitle.textContent = info.name;
+        spMeta.textContent = `${info.artist || ''}  •  ${info.album || ''}`;
+
+        if (info.type !== 'track') {
+          spTracks.textContent = `${info.track_count} track${info.track_count !== 1 ? 's' : ''} — downloads as ZIP`;
+        } else {
+          spTracks.textContent = '';
+        }
+
+        spCard.classList.remove('hidden');
+        return;
+      }
+
+      // Still pending — update label with animated dots
+      dots = (dots + 1) % 4;
+      label.textContent = `Fetching track info${'.'.repeat(dots)}`;
     }
 
-    spCard.classList.remove('hidden');
+    throw new Error('Request timed out');
   } catch (err) {
     showToast(err.message || 'Failed to fetch Spotify info', 'error');
+    // Even when metadata fetch fails, let the user attempt a download.
+    if (url) {
+      spCurrentUrl = url;
+      spThumb.src = '';
+      spTitle.textContent = 'Metadata unavailable';
+      spMeta.textContent = '';
+      spTracks.textContent = 'You can still attempt a download below.';
+      spCard.classList.remove('hidden');
+    }
   } finally {
     spFetch.disabled = false;
     spFetch.textContent = 'Fetch';
+    spProgress.classList.add('hidden');
   }
 });
 
