@@ -77,6 +77,7 @@ Type=simple
 User=www-data
 WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="HOME=$APP_DIR"
 ExecStart=$VENV_DIR/bin/python $APP_DIR/app.py
 Restart=on-failure
 RestartSec=5

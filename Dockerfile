@@ -20,7 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Non-root user for security
-RUN useradd --system --no-create-home appuser
+RUN useradd --system --no-create-home appuser \
+    && mkdir -p /home/appuser \
+    && chown appuser:appuser /home/appuser
+ENV HOME=/home/appuser
 USER appuser
 
 ENV APP_PORT=8080
