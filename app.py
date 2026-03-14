@@ -82,7 +82,11 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
+# When bumping the version, update ALL of the following in one commit:
+#   1. VERSION constant here (app.py)
+#   2. The health-check example output in README.md (search for `"version":`)
+#   That's it — the /api/health endpoint reads VERSION directly at runtime.
 
 # ---------------------------------------------------------------------------
 # spotdl environment helper
@@ -595,17 +599,19 @@ def _fetch_spotify_metadata(url: str) -> list:
         "spotdl",
         "save",
         url,
-        "--save-file", "/dev/stdout",
+        "--save-file", "-",  # "-" tells spotdl to print JSON to stdout
         "--no-cache",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=_spotdl_env())
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "spotdl metadata failed")
-    # spotdl save emits JSON lines
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("{")]
-    if not lines:
+    # spotdl save --save-file - prints a JSON array to stdout
+    try:
+        tracks = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"spotdl returned unexpected output: {exc}") from exc
+    if not isinstance(tracks, list) or not tracks:
         raise ValueError("No metadata returned by spotdl")
-    tracks = [json.loads(line) for line in lines]
     return tracks
 
 
