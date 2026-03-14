@@ -441,7 +441,7 @@ curl -s -X POST http://localhost:8080/api/youtube/info \
 
 ```bash
 curl -s http://localhost:8080/api/health | jq .
-# {"status": "ok", "version": "2.1.0"}
+# {"status": "ok", "version": "2.2.1"}
 ```
 
 </details>
