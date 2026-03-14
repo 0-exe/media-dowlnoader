@@ -198,7 +198,7 @@ spFetch.addEventListener('click', async () => {
 
     // Poll /api/jobs/<id>/status until ready or error
     const POLL_INTERVAL = 2000;
-    const MAX_WAIT_MS = 2 * 60 * 1000; // 2 minutes
+    const MAX_WAIT_MS = 5 * 60 * 1000; // 5 minutes
     const deadline = Date.now() + MAX_WAIT_MS;
     let dots = 0;
     while (Date.now() < deadline) {
