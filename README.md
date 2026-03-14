@@ -477,6 +477,10 @@ media-dowlnoader/
 ---
 
 ## 🔢 Versioning
+<details>
+<summary>Click to expand</summary>
+
+```
 
 This project uses **Semantic Versioning** (`MAJOR.MINOR.PATCH`, e.g. `2.2.1`).  
 **Every code change must bump the version** before merging.
@@ -490,6 +494,9 @@ This project uses **Semantic Versioning** (`MAJOR.MINOR.PATCH`, e.g. `2.2.1`).
 When bumping the version, update **all** of the following in one commit:
 1. `VERSION` constant in `app.py`
 2. The health-check example output in this README (search for `"version":`)
+```
+
+</details>
 
 ---
 
